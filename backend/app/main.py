@@ -114,6 +114,24 @@ def create_application() -> FastAPI:
     except Exception as e:
          print(f"Detailed Migration Log: 'icon' in categories likely exists. {e}")
 
+    # 9. Budgets Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS budgets (
+                    id VARCHAR PRIMARY KEY,
+                    tenant_id VARCHAR NOT NULL,
+                    category VARCHAR NOT NULL,
+                    amount_limit DECIMAL(15, 2) NOT NULL,
+                    period VARCHAR DEFAULT 'MONTHLY',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                )
+            """))
+            print("Detailed Migration Log: 'budgets' table CREATED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'budgets' table creation failed. {e}")
+
     Base.metadata.create_all(bind=engine)
 
     return application

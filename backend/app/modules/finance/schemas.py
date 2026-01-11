@@ -120,3 +120,29 @@ class CategoryRead(CategoryBase):
     
     class Config:
         from_attributes = True
+    class Config:
+        from_attributes = True
+
+class BudgetBase(BaseModel):
+    category: str
+    amount_limit: Decimal
+    period: str = "MONTHLY"
+
+class BudgetCreate(BudgetBase):
+    pass
+
+class BudgetUpdate(BaseModel):
+    amount_limit: Optional[Decimal] = None
+
+class BudgetRead(BudgetBase):
+    id: UUID
+    tenant_id: UUID
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class BudgetProgress(BudgetRead):
+    spent: Decimal
+    remaining: Decimal
+    percentage: float

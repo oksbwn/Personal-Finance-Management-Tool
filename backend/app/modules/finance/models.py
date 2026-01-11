@@ -74,3 +74,13 @@ class Category(Base):
     name = Column(String, nullable=False)
     icon = Column(String, nullable=True) # Emoji or icon code
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Budget(Base):
+    __tablename__ = "budgets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    category = Column(String, nullable=False) # e.g. "Food"
+    amount_limit = Column(Numeric(15, 2), nullable=False) # Monthly Limit
+    period = Column(String, default="MONTHLY") # For future extensibility
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

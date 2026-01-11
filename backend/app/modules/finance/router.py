@@ -204,3 +204,39 @@ def delete_category(
     success = services.FinanceService.delete_category(db, category_id, str(current_user.tenant_id))
     if not success: raise HTTPException(status_code=404, detail="Category not found")
     return {"status": "success"}
+
+# --- Budgets ---
+@router.get("/budgets", response_model=List[schemas.BudgetProgress])
+def get_budgets(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all budgets with spending progress for the current month.
+    """
+    return services.FinanceService.get_budgets(db, str(current_user.tenant_id))
+
+@router.post("/budgets", response_model=schemas.BudgetRead)
+def set_budget(
+    budget: schemas.BudgetCreate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Set (Create or Update) a budget for a category.
+    """
+    return services.FinanceService.set_budget(db, budget, str(current_user.tenant_id))
+
+@router.delete("/budgets/{budget_id}")
+def delete_budget(
+    budget_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a budget.
+    """
+    success = services.FinanceService.delete_budget(db, budget_id, str(current_user.tenant_id))
+    if not success:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return {"status": "success"}

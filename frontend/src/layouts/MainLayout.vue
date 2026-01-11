@@ -127,6 +127,10 @@ onUnmounted(() => {
                         <span class="icon">💸</span>
                         <span class="label" v-if="!isSidebarCollapsed">Transactions</span>
                     </router-link>
+                    <router-link to="/budgets" class="nav-item" active-class="active">
+                        <span class="icon">📉</span>
+                        <span class="label" v-if="!isSidebarCollapsed">Budgets</span>
+                    </router-link>
                     <router-link to="/settings" class="nav-item" active-class="active">
                         <span class="icon">⚙️</span>
                         <span class="label" v-if="!isSidebarCollapsed">Settings</span>
