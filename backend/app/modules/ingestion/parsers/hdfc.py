@@ -19,6 +19,12 @@ class HdfcSmsParser(BaseSmsParser):
         re.IGNORECASE
     )
 
+    # Example: "Sent Rs.75.00 From HDFC Bank A/C *5244 To Shree Krishna Sweets On 06/01/26 Ref 116777306188"
+    SENT_PATTERN = re.compile(
+        r"(?i)Sent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*From\s*HDFC\s*Bank\s*A/C\s*(?:.*?|x*|\*|X*)(\d+)\s*To\s*(.*?)\s*On\s*(\d{2}/\d{2}/\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
+        re.IGNORECASE
+    )
+
     def can_handle(self, sender: str, message: str) -> bool:
         return "hdfc" in sender.lower() or "hdfc" in message.lower()
 
@@ -45,11 +51,28 @@ class HdfcSmsParser(BaseSmsParser):
             ref_id = match.group(5)
             return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id)
 
+        # 3. Try Sent
+        match = self.SENT_PATTERN.search(clean_content)
+        if match:
+            amount = Decimal(match.group(1).replace(",", ""))
+            account_mask = match.group(2)
+            recipient = match.group(3).strip()
+            date_str = match.group(4)
+            ref_id = match.group(5)
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id)
+
         return None
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id):
         try:
-            txn_date = datetime.strptime(date_str, "%d-%m-%y")
+            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
+            txn_date = None
+            for fmt in formats:
+                try:
+                    txn_date = datetime.strptime(date_str, fmt)
+                    break
+                except: continue
+            if not txn_date: txn_date = datetime.now()
         except:
             txn_date = datetime.now()
             
