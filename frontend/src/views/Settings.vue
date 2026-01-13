@@ -7,12 +7,55 @@ import { useNotificationStore } from '@/stores/notification'
 
 const notify = useNotificationStore()
 
-const activeTab = ref('rules')
+const activeTab = ref('accounts') // Defaulting to accounts for now or keeping it as 'rules'
 const categories = ref<any[]>([])
 
+// Accounts State
+const accounts = ref<any[]>([])
+const loading = ref(true)
+const showAccountModal = ref(false)
+const editingAccountId = ref<string | null>(null)
+const newAccount = ref({
+    name: '',
+    type: 'BANK',
+    currency: 'INR',
+    account_mask: '',
+    balance: 0,
+    owner_name: '',
+    is_verified: true
+})
+
+const searchQuery = ref('')
+const verifiedAccounts = computed(() => {
+    let filtered = accounts.value.filter(a => a.is_verified !== false)
+    if (searchQuery.value) {
+        filtered = filtered.filter(a => a.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
+    }
+    return filtered
+})
+const untrustedAccounts = computed(() => accounts.value.filter(a => a.is_verified === false))
+
+const accountMetrics = computed(() => {
+    return {
+        total: accounts.value.reduce((sum, a) => sum + (a.balance || 0), 0),
+        cash: accounts.value.filter(a => a.type === 'CASH').reduce((sum, a) => sum + (a.balance || 0), 0),
+        bank: accounts.value.filter(a => a.type === 'BANK').reduce((sum, a) => sum + (a.balance || 0), 0),
+        credit: accounts.value.filter(a => a.type === 'CREDIT').reduce((sum, a) => sum + (a.balance || 0), 0),
+    }
+})
+
+// Rules/Categories State
 const rules = ref<any[]>([])
+const filteredRules = computed(() => {
+    if (!searchQuery.value) return rules.value
+    const q = searchQuery.value.toLowerCase()
+    return rules.value.filter(r => 
+        r.name.toLowerCase().includes(q) || 
+        r.category.toLowerCase().includes(q) ||
+        r.keywords.some((k: string) => k.toLowerCase().includes(q))
+    )
+})
 const suggestions = ref<any[]>([])
-const loading = ref(true) // Loading state shared
 const showModal = ref(false)
 const showDeleteConfirm = ref(false)
 const ruleToDelete = ref<string | null>(null)
@@ -25,7 +68,6 @@ const newRule = ref({
     keywords: ''
 })
 
-// Category State
 const showCategoryModal = ref(false)
 const showDeleteCategoryConfirm = ref(false)
 const categoryToDelete = ref<string | null>(null)
@@ -34,27 +76,28 @@ const editingCategoryId = ref<string | null>(null)
 const newCategory = ref({ name: '', icon: '🏷️' })
 
 const categoryOptions = computed(() => {
-    // Transform backend categories to select options
     return categories.value.map(c => ({
         label: `${c.icon} ${c.name}`,
-        value: c.name // We still store name as string in transactions
+        value: c.name
     }))
 })
 
 async function fetchData() {
     loading.value = true
     try {
-        const [rulesRes, suggestionsRes, catsRes] = await Promise.all([
+        const [rulesRes, suggestionsRes, catsRes, accountsRes] = await Promise.all([
             financeApi.getRules(),
             financeApi.getRuleSuggestions(),
-            financeApi.getCategories()
+            financeApi.getCategories(),
+            financeApi.getAccounts()
         ])
         rules.value = rulesRes.data
         suggestions.value = suggestionsRes.data
         categories.value = catsRes.data
+        accounts.value = accountsRes.data
     } catch (err) {
         console.error("Failed to fetch data", err)
-        notify.error("Failed to load data")
+        notify.error("Failed to load settings data")
     } finally {
         loading.value = false
     }
@@ -63,6 +106,52 @@ async function fetchData() {
 onMounted(() => {
     fetchData()
 })
+
+// --- Account Functions ---
+function openCreateAccountModal() {
+    editingAccountId.value = null
+    newAccount.value = { name: '', type: 'BANK', currency: 'INR', account_mask: '', balance: 0, owner_name: '', is_verified: true }
+    showAccountModal.value = true
+}
+
+function openEditAccountModal(account: any) {
+    editingAccountId.value = account.id
+    newAccount.value = {
+        name: account.name,
+        type: account.type,
+        currency: account.currency,
+        account_mask: account.account_mask || '',
+        owner_name: account.owner_name || '',
+        balance: account.balance,
+        is_verified: true 
+    }
+    showAccountModal.value = true
+}
+
+async function handleAccountSubmit() {
+    try {
+        if (editingAccountId.value) {
+            await financeApi.updateAccount(editingAccountId.value, newAccount.value)
+            notify.success("Account updated")
+        } else {
+            await financeApi.createAccount(newAccount.value)
+            notify.success("Account created")
+        }
+        showAccountModal.value = false
+        fetchData()
+    } catch (e) {
+        notify.error("Failed to save account")
+    }
+}
+
+const getOwnerIcon = (name: string) => {
+    const n = name.toLowerCase()
+    if (n.includes('dad') || n.includes('father')) return '👨'
+    if (n.includes('mom') || n.includes('mother')) return '👩'
+    if (n.includes('kid') || n.includes('child')) return '🧒'
+    if (n.includes('grand')) return '🧓'
+    return '👤'
+}
 // End of script logic
 
 // --- Rule Functions ---
@@ -209,106 +298,295 @@ async function confirmDeleteCategory() {
 
 <template>
     <MainLayout>
-        <div class="page-header">
-            <div>
-                <h1>Settings ⚙️</h1>
-                <p class="subtitle">Configure your application preferences.</p>
-            </div>
-        </div>
+        <div class="settings-view">
+            <!-- New Premium Header -->
+            <div class="page-header-compact">
+                <div class="header-left">
+                    <h1 class="page-title">Settings</h1>
+                    <div class="header-tabs">
+                        <button 
+                            class="tab-btn" 
+                            :class="{ active: activeTab === 'accounts' }" 
+                            @click="activeTab = 'accounts'; searchQuery = ''"
+                        >
+                            Accounts
+                        </button>
+                        <button 
+                            class="tab-btn" 
+                            :class="{ active: activeTab === 'rules' }" 
+                            @click="activeTab = 'rules'; searchQuery = ''"
+                        >
+                            Rules
+                        </button>
+                        <button 
+                            class="tab-btn" 
+                            :class="{ active: activeTab === 'categories' }" 
+                            @click="activeTab = 'categories'; searchQuery = ''"
+                        >
+                            Categories
+                        </button>
+                    </div>
+                </div>
 
-        <div class="tabs">
-            <button :class="['tab-btn', { active: activeTab === 'rules' }]" @click="activeTab = 'rules'">📝 Rules</button>
-            <button :class="['tab-btn', { active: activeTab === 'categories' }]" @click="activeTab = 'categories'">🏷️ Categories</button>
-        </div>
-
-        <div v-if="loading" class="loading">Loading...</div>
-
-        <!-- RULES TAB -->
-        <div v-else-if="activeTab === 'rules'">
-             <div class="tab-actions">
-                <h2 class="section-title" style="margin:0">Auto-Categorization Rules</h2>
-                <button @click="openAddModal" class="btn btn-primary">
-                    + New Rule
-                </button>
-             </div>
-
-             <!-- Suggestions Section -->
-            <div v-if="suggestions.length > 0" class="suggestions-section">
-                <h3 class="section-title">💡 Smart Suggestions</h3>
-                <div class="grid">
-                    <div v-for="s in suggestions" :key="s.name" class="card suggestion-card">
-                        <div class="rule-header">
-                            <h3>{{ s.name }}</h3>
-                            <button @click="approveSuggestion(s)" class="btn btn-sm btn-primary">
-                                Approve
-                            </button>
-                        </div>
-                         <div class="keywords">
-                            <span class="keyword-tag">{{ s.keywords[0] }}</span>
-                            <span class="arrow">→</span>
-                            <span class="category-pill">{{ getCategoryDisplay(s.category) }}</span>
-                        </div>
-                        <div class="meta">Based on {{ s.confidence }} manual entri(es)</div>
+                <div class="header-right-actions">
+                    <div class="search-box-compact">
+                        <span class="search-icon">🔍</span>
+                        <input 
+                            v-model="searchQuery" 
+                            :placeholder="activeTab === 'accounts' ? 'Search accounts...' : 'Search rules...'" 
+                        />
+                    </div>
+                    <div class="header-actions">
+                        <button v-if="activeTab === 'accounts'" @click="openCreateAccountModal" class="btn-primary-glow">
+                            <span class="btn-icon-plus">+</span> Add Account
+                        </button>
+                        <button v-if="activeTab === 'rules'" @click="openAddModal" class="btn-primary-glow">
+                            <span class="btn-icon-plus">+</span> New Rule
+                        </button>
+                        <button v-if="activeTab === 'categories'" @click="openAddCategoryModal" class="btn-primary-glow">
+                            <span class="btn-icon-plus">+</span> New Category
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Existing Rules -->
-            <div class="grid" style="margin-top: 1rem;">
-                <div v-for="rule in rules" :key="rule.id" class="card rule-card">
-                    <div class="rule-header">
-                        <h3>{{ rule.name }}</h3>
-                        <div class="actions">
-                             <button @click="openEditModal(rule)" class="btn-icon">✏️</button>
-                             <button @click="deleteRule(rule.id)" class="btn-icon danger">🗑️</button>
+            <div v-if="loading" class="loading-state">
+                <div class="loader-spinner"></div>
+                <p>Loading your preferences...</p>
+            </div>
+
+            <!-- ACCOUNTS TAB -->
+            <div v-else-if="activeTab === 'accounts'" class="tab-content animate-in">
+                <!-- Account Summary Widgets -->
+                <div class="summary-widgets">
+                    <div class="mini-stat-card glass h-glow-primary">
+                        <div class="stat-top">
+                            <span class="stat-label">Total Liquid Wealth</span>
+                            <span class="stat-icon-bg gray">⚖️</span>
+                        </div>
+                        <div class="stat-value">₹ {{ accountMetrics.total.toLocaleString() }}</div>
+                    </div>
+                    <div class="mini-stat-card glass h-glow-success">
+                        <div class="stat-top">
+                            <span class="stat-label">Bank Balance</span>
+                            <span class="stat-icon-bg green">🏦</span>
+                        </div>
+                        <div class="stat-value">₹ {{ accountMetrics.bank.toLocaleString() }}</div>
+                    </div>
+                    <div class="mini-stat-card glass h-glow-warning">
+                        <div class="stat-top">
+                            <span class="stat-label">Cash on Hand</span>
+                            <span class="stat-icon-bg yellow">💵</span>
+                        </div>
+                        <div class="stat-value">₹ {{ accountMetrics.cash.toLocaleString() }}</div>
+                    </div>
+                    <div class="mini-stat-card glass h-glow-danger">
+                        <div class="stat-top">
+                            <span class="stat-label">Credit Liability</span>
+                            <span class="stat-icon-bg red">💳</span>
+                        </div>
+                        <div class="stat-value">₹ {{ accountMetrics.credit.toLocaleString() }}</div>
+                    </div>
+                </div>
+
+                <!-- Untrusted Accounts -->
+                <div v-if="untrustedAccounts.length > 0" class="alert-section">
+                    <h2 class="section-title warning">⚠️ New Detected Accounts</h2>
+                    <div class="settings-grid">
+                        <div v-for="acc in untrustedAccounts" :key="acc.id" class="glass-card untrusted pulse-border">
+                            <div class="card-top">
+                                <div class="card-main">
+                                    <span class="card-label">Untrusted Source</span>
+                                    <h3 class="card-name">{{ acc.name }}</h3>
+                                </div>
+                                <button @click="openEditAccountModal(acc)" class="btn-verify">Verify</button>
+                            </div>
+                            <div class="card-bottom">
+                                <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                                <span class="card-meta">Found via SMS</span>
+                            </div>
                         </div>
                     </div>
-                    <div style="margin-bottom: 0.5rem;">
-                         <span class="category-pill">{{ getCategoryDisplay(rule.category) }}</span>
+                </div>
+
+                <!-- Verified Accounts -->
+                <div class="settings-grid">
+                    <div v-for="acc in verifiedAccounts" :key="acc.id" class="glass-card premium-hover">
+                        <div class="card-top">
+                            <div class="card-main">
+                                <div class="card-type-header">
+                                    <span class="type-dot" :class="acc.type.toLowerCase()"></span>
+                                    <span class="card-label">{{ acc.type }}</span>
+                                </div>
+                                <h3 class="card-name">{{ acc.name }}</h3>
+                            </div>
+                            <button @click="openEditAccountModal(acc)" class="btn-icon-circle">✏️</button>
+                        </div>
+                        <div class="card-bottom">
+                            <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                            <div class="card-pills">
+                                <span class="owner-badge">
+                                    {{ getOwnerIcon(acc.owner_name) }} {{ acc.owner_name || 'Family' }}
+                                </span>
+                                <span v-if="acc.account_mask" class="mask-badge">••{{ acc.account_mask }}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="keywords">
-                        <span v-for="k in rule.keywords" :key="k" class="keyword-tag">{{ k }}</span>
+
+                    <div v-if="verifiedAccounts.length === 0 && !searchQuery" class="empty-card" @click="openCreateAccountModal">
+                        <span class="empty-plus">+</span>
+                        <p>Track a new account</p>
+                    </div>
+                    <div v-else-if="verifiedAccounts.length === 0" class="empty-placeholder">
+                        <p>No accounts match your search.</p>
                     </div>
                 </div>
             </div>
-            
-            <div v-if="rules.length === 0 && suggestions.length === 0" class="empty-state">
-                <p>No rules found. Add one to automate your life!</p>
+
+            <!-- RULES TAB -->
+            <div v-else-if="activeTab === 'rules'" class="tab-content animate-in">
+                <!-- Suggestions -->
+                <div v-if="suggestions.length > 0 && !searchQuery" class="alert-section">
+                    <h2 class="section-title info">💡 Smart Suggestions</h2>
+                    <div class="settings-grid">
+                        <div v-for="s in suggestions" :key="s.name" class="glass-card suggestion glow-border-blue">
+                            <div class="card-top">
+                                <div class="card-main">
+                                    <h3 class="card-name">{{ s.name }}</h3>
+                                    <div class="rule-flow">
+                                        <span class="keyword-tag">{{ s.keywords[0] }}</span>
+                                        <span class="arrow">→</span>
+                                        <span class="category-pill-sm">{{ getCategoryDisplay(s.category) }}</span>
+                                    </div>
+                                </div>
+                                <button @click="approveSuggestion(s)" class="btn-approve">Approve</button>
+                            </div>
+                            <div class="card-meta">Based on {{ s.confidence }} manual entries</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing Rules -->
+                <div class="settings-grid">
+                    <div v-for="rule in filteredRules" :key="rule.id" class="glass-card rule-entry premium-hover">
+                        <div class="card-top">
+                            <div class="card-main">
+                                <h3 class="card-name">{{ rule.name }}</h3>
+                                <span class="category-pill-sm">{{ getCategoryDisplay(rule.category) }}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button @click="openEditModal(rule)" class="btn-icon-circle">✏️</button>
+                                <button @click="deleteRule(rule.id)" class="btn-icon-circle danger">🗑️</button>
+                            </div>
+                        </div>
+                        <div class="card-keywords">
+                            <span v-for="k in rule.keywords" :key="k" class="keyword-tag">{{ k }}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div v-if="filteredRules.length === 0" class="empty-placeholder">
+                    <p>{{ searchQuery ? 'No rules match your search.' : 'No rules found. Define rules to automate categorization.' }}</p>
+                </div>
+            </div>
+
+            <!-- CATEGORIES TAB -->
+            <div v-else-if="activeTab === 'categories'" class="tab-content animate-in">
+                <div class="settings-grid">
+                    <div v-for="cat in categories" :key="cat.id" class="glass-card category">
+                        <div class="cat-body">
+                            <span class="cat-icon-large">{{ cat.icon }}</span>
+                            <h3 class="card-name">{{ cat.name }}</h3>
+                        </div>
+                        <div class="card-actions">
+                            <button @click="openEditCategoryModal(cat)" class="btn-icon-circle">✏️</button>
+                            <button @click="deleteCategory(cat.id)" class="btn-icon-circle danger">🗑️</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- CATEGORIES TAB -->
-        <div v-else-if="activeTab === 'categories'">
-            <div class="tab-actions">
-                <h2 class="section-title" style="margin:0">Expense Categories</h2>
-                <button @click="openAddCategoryModal" class="btn btn-primary">
-                    + New Category
-                </button>
-            </div>
-
-            <div class="grid" style="margin-top: 1rem;">
-                <div v-for="cat in categories" :key="cat.id" class="card category-card">
-                    <div class="cat-content">
-                        <span class="cat-icon">{{ cat.icon }}</span>
-                        <span class="cat-name">{{ cat.name }}</span>
-                    </div>
-                    <div class="actions">
-                        <button @click="openEditCategoryModal(cat)" class="btn-icon">✏️</button>
-                        <button @click="deleteCategory(cat.id)" class="btn-icon danger">🗑️</button>
-                    </div>
+        <!-- Account Modal -->
+        <div v-if="showAccountModal" class="modal-overlay-global">
+            <div class="modal-global glass">
+                <div class="modal-header">
+                    <h2 class="modal-title">{{ editingAccountId ? 'Edit Account' : 'New Account' }}</h2>
+                    <button class="btn-icon-circle" @click="showAccountModal = false">✕</button>
                 </div>
+
+                <form @submit.prevent="handleAccountSubmit" class="form-compact">
+                    <div class="form-group">
+                        <label class="form-label">Account Name</label>
+                        <input v-model="newAccount.name" class="form-input" required placeholder="e.g. HDFC Savings" />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Owner (Person)</label>
+                        <CustomSelect 
+                            v-model="newAccount.owner_name" 
+                            :options="[
+                                { label: 'Shared / Family', value: '' },
+                                { label: 'Dad', value: 'Dad' },
+                                { label: 'Mom', value: 'Mom' },
+                                { label: 'Kid', value: 'Kid' }
+                            ]"
+                            placeholder="Select Owner"
+                        />
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label class="form-label">Type</label>
+                            <CustomSelect 
+                                v-model="newAccount.type"
+                                :options="[
+                                    { label: 'Bank Account', value: 'BANK' },
+                                    { label: 'Cash Wallet', value: 'CASH' },
+                                    { label: 'Investment', value: 'INVESTMENT' },
+                                    { label: 'Credit Card', value: 'CREDIT' }
+                                ]"
+                            />
+                        </div>
+                        <div class="form-group half">
+                            <label class="form-label">Currency</label>
+                            <CustomSelect 
+                                v-model="newAccount.currency"
+                                :options="[
+                                    { label: 'INR - Indian Rupee', value: 'INR' },
+                                    { label: 'USD - US Dollar', value: 'USD' }
+                                ]"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Account Mask (Last 4 Digits)</label>
+                        <input v-model="newAccount.account_mask" class="form-input" placeholder="e.g. 1234" maxlength="4" />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Current Balance</label>
+                        <input type="number" v-model.number="newAccount.balance" class="form-input" step="0.01" />
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" @click="showAccountModal = false" class="btn-secondary">Cancel</button>
+                        <button type="submit" class="btn-primary-glow">Save Changes</button>
+                    </div>
+                </form>
             </div>
         </div>
 
         <!-- Add/Edit Rule Modal -->
         <div v-if="showModal" class="modal-overlay-global">
-            <div class="modal-global">
+            <div class="modal-global glass">
                  <div class="modal-header">
                     <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
-                    <button class="btn-icon" @click="showModal = false">✕</button>
+                    <button class="btn-icon-circle" @click="showModal = false">✕</button>
                 </div>
                 
-                <form @submit.prevent="saveRule">
+                <form @submit.prevent="saveRule" class="form-compact">
                     <div class="form-group">
                         <label class="form-label">Rule Name</label>
                         <input v-model="newRule.name" class="form-input" required placeholder="e.g. Ride Apps" />
@@ -319,8 +597,7 @@ async function confirmDeleteCategory() {
                         <CustomSelect 
                             v-model="newRule.category" 
                              :options="categoryOptions"
-                            placeholder="Select or Type Category"
-                            allow-new
+                            placeholder="Select Category"
                         />
                     </div>
                     
@@ -330,8 +607,8 @@ async function confirmDeleteCategory() {
                     </div>
 
                     <div class="modal-footer">
-                         <button type="button" @click="showModal = false" class="btn btn-outline">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save Rule</button>
+                         <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
+                        <button type="submit" class="btn-primary-glow">Save Rule</button>
                     </div>
                 </form>
             </div>
@@ -339,55 +616,48 @@ async function confirmDeleteCategory() {
         
         <!-- Add/Edit Category Modal -->
         <div v-if="showCategoryModal" class="modal-overlay-global">
-            <div class="modal-global">
+            <div class="modal-global glass">
                 <div class="modal-header">
                     <h2 class="modal-title">{{ isEditingCategory ? 'Edit Category' : 'New Category' }}</h2>
-                    <button class="btn-icon" @click="showCategoryModal = false">✕</button>
+                    <button class="btn-icon-circle" @click="showCategoryModal = false">✕</button>
                 </div>
                 
-                <form @submit.prevent="saveCategory">
+                <form @submit.prevent="saveCategory" class="form-compact">
                      <div class="form-group">
                         <label class="form-label">Icon (Emoji)</label>
-                        <input v-model="newCategory.icon" class="form-input" style="font-size: 1.5rem; width: 60px;" required />
+                        <input v-model="newCategory.icon" class="form-input emoji-input" required />
                     </div>
                     <div class="form-group">
                         <label class="form-label">Category Name</label>
                         <input v-model="newCategory.name" class="form-input" required placeholder="e.g. Subscriptions" />
                     </div>
                     <div class="modal-footer">
-                         <button type="button" @click="showCategoryModal = false" class="btn btn-outline">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save Category</button>
+                         <button type="button" @click="showCategoryModal = false" class="btn-secondary">Cancel</button>
+                        <button type="submit" class="btn-primary-glow">Save Category</button>
                     </div>
                 </form>
             </div>
         </div>
 
-        <!-- Delete Confirmation Modal (Rule) -->
+        <!-- Confirmations -->
         <div v-if="showDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Delete Rule</h2>
-                    <button class="btn-icon" @click="showDeleteConfirm = false">✕</button>
-                </div>
-                <p>Are you sure you want to delete this rule? This action cannot be undone.</p>
+            <div class="modal-global glass alert">
+                <h2 class="modal-title">Delete Rule?</h2>
+                <p>This will stop automatic categorization for matching transactions.</p>
                 <div class="modal-footer">
-                    <button @click="showDeleteConfirm = false" class="btn btn-outline">Cancel</button>
-                    <button @click="confirmDelete" class="btn btn-primary danger-btn">Delete</button>
+                    <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
+                    <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
                 </div>
             </div>
         </div>
 
-        <!-- Delete Confirmation Modal (Category) -->
         <div v-if="showDeleteCategoryConfirm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Delete Category</h2>
-                    <button class="btn-icon" @click="showDeleteCategoryConfirm = false">✕</button>
-                </div>
-                <p>Are you sure you want to delete this category? Active transactions may lose their formatting.</p>
+            <div class="modal-global glass alert">
+                <h2 class="modal-title">Delete Category?</h2>
+                <p>Existing transactions in this category will become uncategorized.</p>
                 <div class="modal-footer">
-                    <button @click="showDeleteCategoryConfirm = false" class="btn btn-outline">Cancel</button>
-                    <button @click="confirmDeleteCategory" class="btn btn-primary danger-btn">Delete</button>
+                    <button @click="showDeleteCategoryConfirm = false" class="btn-secondary">Cancel</button>
+                    <button @click="confirmDeleteCategory" class="btn-danger">Delete</button>
                 </div>
             </div>
         </div>
@@ -395,48 +665,487 @@ async function confirmDeleteCategory() {
 </template>
 
 <style scoped>
-.tabs { display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0px; }
-.tab-btn { background: none; border: none; padding: 0.5rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 1rem; }
-.tab-btn.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
-.tab-btn:hover { color: var(--color-text-main); }
+.settings-view {
+    padding-bottom: 4rem;
+}
 
-.tab-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+/* Premium Header Styling */
+.page-header-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    gap: 1.5rem;
+}
 
-.category-card { display: flex; justify-content: space-between; align-items: center; }
-.cat-content { display: flex; align-items: center; gap: 1rem; }
-.cat-icon { font-size: 1.5rem; background: var(--color-background); width: 40px; height: 40px; display: flex; justify-content: center; align-items: center; border-radius: 50%; }
-.cat-name { font-weight: 600; font-size: 1.1rem; }
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
 
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-xl); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--spacing-lg); }
-.card { background: var(--color-surface); padding: var(--spacing-lg); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); }
-.rule-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
-.actions { display: flex; gap: 0.5rem; }
-.danger { color: var(--color-danger, #ef4444); }
-.danger:hover { background: #fee2e2; }
-.danger-btn { background: var(--color-danger, #ef4444); border-color: var(--color-danger, #ef4444); color: white; }
-.danger-btn:hover { background: #dc2626; border-color: #dc2626; }
-.rule-header h3 { margin: 0; font-size: 1.1rem; }
-.category-pill { background: var(--color-primary-light); color: var(--color-primary); padding: 0.25rem 0.5rem; border-radius: 1rem; font-size: 0.8rem; font-weight: 500; }
-.keywords { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.keyword-tag { background: var(--color-background); padding: 0.2rem 0.6rem; border-radius: 0.5rem; font-size: 0.8rem; border: 1px solid var(--color-border); color: var(--color-text-muted); }
-.modal-overlay-global { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-.modal-global { background: var(--color-surface); padding: 2rem; border-radius: 1rem; width: 100%; max-width: 500px; box-shadow: var(--shadow-xl); max-height: 90vh; overflow-y: auto; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-.modal-title { margin: 0; font-size: 1.25rem; }
-.btn-icon { background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 0.2rem; border-radius: 0.25rem; transition: background 0.2s; }
-.btn-icon:hover { background: var(--color-background); }
-.form-group { margin-bottom: 1rem; }
-.form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-.form-input { width: 100%; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: var(--color-background); color: var(--color-text-main); }
-.modal-footer { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; }
-.loading { text-align: center; padding: 2rem; color: var(--color-text-muted); }
-.empty-state { grid-column: 1/-1; text-align: center; padding: 4rem; background: var(--color-surface); border-radius: 1rem; color: var(--color-text-muted); border: 2px dashed var(--color-border); }
+.header-right-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
 
-.suggestions-section { margin-bottom: var(--spacing-xl); }
-.section-title { font-size: 1.1rem; color: var(--color-primary); margin-bottom: var(--spacing-md); font-weight: 600; }
-.suggestion-card { border: 1px dashed var(--color-primary); background: var(--color-primary-light); }
-.arrow { margin: 0 0.5rem; color: var(--color-text-muted); }
-.meta { font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem; }
-.btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+.search-box-compact {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: white;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.625rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    width: 200px;
+    transition: all 0.2s;
+}
+
+.search-box-compact:focus-within {
+    width: 260px;
+    border-color: #4f46e5;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+}
+
+.search-icon { font-size: 0.8rem; opacity: 0.5; }
+
+.search-box-compact input {
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 0.8125rem;
+    width: 100%;
+}
+
+.page-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #111827;
+    margin: 0;
+    letter-spacing: -0.025em;
+}
+
+/* Summary Widgets */
+.summary-widgets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.875rem;
+    margin-bottom: 1.25rem;
+}
+
+.mini-stat-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.875rem;
+    padding: 0.875rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transition: all 0.2s;
+}
+
+.mini-stat-card:hover {
+    transform: translateY(-2px);
+    border-color: #d1d5db;
+}
+
+.stat-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-icon-bg {
+    width: 32px; height: 32px;
+    border-radius: 0.5rem;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+}
+
+.stat-icon-bg.gray { background: #f3f4f6; }
+.stat-icon-bg.green { background: #ecfdf5; }
+.stat-icon-bg.yellow { background: #fffbeb; }
+.stat-icon-bg.red { background: #fef2f2; }
+
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #111827;
+    letter-spacing: -0.025em;
+}
+
+/* Glow Effects */
+.h-glow-primary:hover { box-shadow: 0 4px 15px rgba(79, 70, 229, 0.1); }
+.h-glow-success:hover { box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1); }
+.h-glow-warning:hover { box-shadow: 0 4px 15px rgba(245, 158, 11, 0.1); }
+.h-glow-danger:hover { box-shadow: 0 4px 15px rgba(239, 68, 68, 0.1); }
+
+.header-tabs {
+    display: flex;
+    gap: 0.125rem;
+    background: #f3f4f6;
+    padding: 0.125rem;
+    border-radius: 0.625rem;
+}
+
+.tab-btn {
+    padding: 0.375rem 1rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-btn.active {
+    background: white;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.btn-primary-glow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+    color: white;
+    border: none;
+    border-radius: 0.625rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 10px rgba(79, 70, 229, 0.15);
+}
+
+/* Grid & Cards */
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.875rem;
+}
+
+.glass-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: all 0.2s;
+}
+
+.glass-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+}
+
+.card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.card-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: block;
+    margin-bottom: 0.125rem;
+}
+
+.card-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+}
+
+.card-type-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.125rem;
+}
+
+.type-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+}
+.type-dot.bank { background: #10b981; }
+.type-dot.cash { background: #f59e0b; }
+.type-dot.credit { background: #ef4444; }
+.type-dot.investment { background: #3b82f6; }
+
+.card-balance {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #111827;
+    letter-spacing: -0.025em;
+}
+
+.card-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.card-pills {
+    display: flex;
+    gap: 0.375rem;
+}
+
+.owner-badge {
+    padding: 0.2rem 0.5rem;
+    background: #f3f4f6;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.mask-badge {
+    padding: 0.2rem 0.5rem;
+    background: #eef2ff;
+    color: #4f46e5;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+/* Icons & Buttons */
+.btn-icon-circle {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: none;
+    background: #f9fafb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.875rem;
+}
+
+.btn-icon-circle:hover {
+    background: #f3f4f6;
+    transform: rotate(15deg);
+}
+
+.btn-icon-circle.danger:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.btn-verify {
+    padding: 0.375rem 0.75rem;
+    background: #4f46e5;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Specialized Sections */
+.alert-section {
+    margin-bottom: 1.5rem;
+}
+
+.premium-hover:hover {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.pulse-border {
+    border: 1px dashed #fbbf24;
+    animation: border-pulse 2s infinite ease-in-out;
+}
+
+@keyframes border-pulse {
+    0% { border-color: rgba(251, 191, 36, 0.4); }
+    50% { border-color: rgba(251, 191, 36, 1); }
+    100% { border-color: rgba(251, 191, 36, 0.4); }
+}
+
+.glow-border-blue {
+    border: 1px solid rgba(79, 70, 229, 0.2);
+    box-shadow: 0 0 10px rgba(79, 70, 229, 0.05);
+}
+
+.section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+}
+
+.section-title.warning { color: #d97706; }
+.section-title.info { color: #4f46e5; }
+
+.glass-card.untrusted {
+    border: 1px dashed #fbbf24;
+    background: #fffbeb;
+}
+
+.empty-card {
+    border: 2px dashed #e5e7eb;
+    border-radius: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #9ca3af;
+}
+
+.empty-card:hover {
+    border-color: #4f46e5;
+    background: #f5f3ff;
+    color: #4f46e5;
+}
+
+.empty-plus { font-size: 1.5rem; font-weight: 300; margin-bottom: 0.25rem; }
+
+/* Rules Styling */
+.rule-flow {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+}
+
+.keyword-tag {
+    padding: 0.125rem 0.375rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    font-size: 0.7rem;
+    color: #4b5563;
+}
+
+.category-pill-sm {
+    padding: 0.125rem 0.375rem;
+    background: #eef2ff;
+    color: #4f46e5;
+    border-radius: 0.375rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.card-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+
+/* Category Large View */
+.glass-card.category {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.cat-body {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.cat-icon-large {
+    font-size: 1.5rem;
+}
+
+/* States */
+.loading-state {
+    padding: 3rem 0;
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.loader-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #4f46e5;
+    border-radius: 50%;
+    margin: 0 auto 1rem;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.animate-in {
+    animation: slideUp 0.4s ease-out forwards;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal Enhancements */
+.modal-overlay-global {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+}
+
+.modal-global.glass {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.emoji-input {
+    font-size: 1.5rem;
+    width: 4rem;
+    text-align: center;
+}
+
+.form-compact .form-group { margin-bottom: 1.25rem; }
+.form-row { display: flex; gap: 1rem; }
+.half { flex: 1; }
+
+.btn-secondary {
+    padding: 0.625rem 1.25rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-danger {
+    padding: 0.625rem 1.25rem;
+    background: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
 </style>

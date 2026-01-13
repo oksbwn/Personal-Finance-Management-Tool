@@ -10,6 +10,7 @@ const notify = useNotificationStore()
 const budgets = ref<any[]>([])
 const categories = ref<any[]>([])
 const loading = ref(true)
+const activeTab = ref('list')
 
 const showModal = ref(false)
 const newBudget = ref({
@@ -117,119 +118,221 @@ onMounted(() => {
 
 <template>
     <MainLayout>
-        <div class="page-header">
-            <div>
-                <h1>Budgets (Monthly)</h1>
-                <p class="subtitle">Track your spending for the current month.</p>
+        <div class="budgets-view">
+            <!-- Premium Header -->
+            <div class="page-header-compact">
+                <div class="header-left">
+                    <h1 class="page-title">Budgets</h1>
+                    <div class="header-tabs">
+                        <button 
+                            class="tab-btn" 
+                            :class="{ active: activeTab === 'list' }" 
+                            @click="activeTab = 'list'"
+                        >
+                            List
+                        </button>
+                        <button 
+                            class="tab-btn" 
+                            :class="{ active: activeTab === 'analytics' }" 
+                            @click="activeTab = 'analytics'"
+                        >
+                            Analytics
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="header-actions">
+                    <button v-if="!overallBudget" class="btn-outline-compact" @click="openSetBudgetModal(true)">
+                        + Total Limit
+                    </button>
+                    <button class="btn-primary-glow" @click="openSetBudgetModal(false)">
+                        <span class="btn-icon-plus">+</span> Set Category
+                    </button>
+                </div>
             </div>
-            <div class="header-actions">
-                 <button v-if="!overallBudget" class="btn btn-outline" @click="openSetBudgetModal(true)">+ Set Overall Limit</button>
-                 <button class="btn btn-primary" @click="openSetBudgetModal(false)">+ Set Category Budget</button>
+
+            <div v-if="loading" class="loading-state">
+                <div class="loader-spinner"></div>
+                <p>Calculating your spending power...</p>
+            </div>
+
+            <div v-else>
+                <!-- LIST VIEW -->
+                <div v-if="activeTab === 'list'" class="tab-content animate-in">
+                    <!-- Overall Budget Hero Card -->
+                    <div v-if="overallBudget" class="overall-glass-card">
+                        <div class="card-top">
+                            <div class="card-main">
+                                <span class="card-label">Overall Monthly Limit</span>
+                                <div class="price-row">
+                                    <span class="currency">₹</span>
+                                    <span class="amount-large">{{ Number(overallBudget.spent).toLocaleString() }}</span>
+                                    <span class="separator">/</span>
+                                    <span class="total-limit">{{ Number(overallBudget.amount_limit).toLocaleString() }}</span>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button @click="editBudget(overallBudget)" class="btn-icon-circle">✏️</button>
+                                <button @click="deleteBudget(overallBudget.id)" class="btn-icon-circle danger">🗑️</button>
+                            </div>
+                        </div>
+
+                        <div class="progress-container-lg">
+                            <div class="progress-bar-bg-lg">
+                                <div class="progress-bar-fill-lg" 
+                                    :style="{ width: Math.min(overallBudget.percentage, 100) + '%' }"
+                                    :class="{ 
+                                        'warning': overallBudget.percentage > 80 && overallBudget.percentage <= 100,
+                                        'danger': overallBudget.percentage > 100 
+                                    }"
+                                ></div>
+                            </div>
+                            <div class="progress-meta">
+                                <span class="percentage-badge" :class="{ 'over': overallBudget.percentage > 100 }">
+                                    {{ overallBudget.percentage?.toFixed(1) }}% Used
+                                </span>
+                                <span class="remaining-text" :class="{ 'over': overallBudget.remaining < 0 }">
+                                    {{ overallBudget.remaining >= 0 ? `₹${Number(overallBudget.remaining).toLocaleString()} remaining` : `₹${Math.abs(Number(overallBudget.remaining)).toLocaleString()} overspent` }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Summary Grid -->
+                    <div class="summary-widgets-budget">
+                        <div class="mini-stat-card glass h-glow-primary">
+                            <div class="stat-top">
+                                <span class="stat-label">Budgeted</span>
+                                <span class="stat-icon-bg gray">📑</span>
+                            </div>
+                            <div class="stat-value">₹ {{ effectiveTotalBudget.toLocaleString() }}</div>
+                        </div>
+                        <div class="mini-stat-card glass h-glow-danger">
+                            <div class="stat-top">
+                                <span class="stat-label">Total Outflow</span>
+                                <span class="stat-icon-bg red">💸</span>
+                            </div>
+                            <div class="stat-value">₹ {{ totalSpent.toLocaleString() }}</div>
+                        </div>
+                        <div class="mini-stat-card glass h-glow-success">
+                            <div class="stat-top">
+                                <span class="stat-label">Budget Safe</span>
+                                <span class="stat-icon-bg green">🛡️</span>
+                            </div>
+                            <div class="stat-value" :class="{ 'negative': totalRemaining < 0 }">₹ {{ totalRemaining.toLocaleString() }}</div>
+                        </div>
+                    </div>
+
+                    <h2 class="section-title">Category Limits</h2>
+                    <div class="budget-grid">
+                        <div v-for="b in categoryBudgets" :key="b.id" class="glass-card budget-card">
+                            <div class="card-top">
+                                <div class="card-main">
+                                    <span class="card-name">{{ getCategoryDisplay(b.category) }}</span>
+                                </div>
+                                <div class="card-actions">
+                                    <button @click="editBudget(b)" class="btn-icon-circle-sm">✏️</button>
+                                    <button @click="deleteBudget(b.id)" class="btn-icon-circle-sm danger">🗑️</button>
+                                </div>
+                            </div>
+                            
+                            <div class="progress-section">
+                                <div class="progress-info-compact">
+                                    <span class="spent">₹{{ Number(b.spent).toLocaleString() }}</span>
+                                    <span class="limit">of ₹{{ Number(b.amount_limit).toLocaleString() }}</span>
+                                </div>
+                                <div class="progress-bar-bg-sm">
+                                    <div class="progress-bar-fill-sm" 
+                                        :style="{ width: Math.min(b.percentage, 100) + '%' }"
+                                        :class="{ 
+                                            'warning': b.percentage > 80 && b.percentage <= 100,
+                                            'danger': b.percentage > 100 
+                                        }"
+                                    ></div>
+                                </div>
+                                <div class="remaining-footer" :class="{ 'over': b.remaining < 0 }">
+                                    {{ b.remaining >= 0 ? `₹${Number(b.remaining).toLocaleString()} left` : `₹${Math.abs(Number(b.remaining)).toLocaleString()} over` }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="categoryBudgets.length === 0" class="empty-card" @click="openSetBudgetModal(false)">
+                            <span class="empty-plus">+</span>
+                            <p>Enforce category limit</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ANALYTICS VIEW -->
+                <div v-else-if="activeTab === 'analytics'" class="tab-content animate-in">
+                    <div class="analytics-grid-budget">
+                        <!-- Utilization Gauge (Mockup for now, could use SVG like transactions) -->
+                        <div class="analytics-card glass">
+                            <div class="card-header">
+                                <h3 class="card-title">Budget Health</h3>
+                            </div>
+                            <div class="gauge-container">
+                                <svg viewBox="0 0 100 60" class="gauge-svg">
+                                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f3f4f6" stroke-width="8" stroke-linecap="round" />
+                                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" 
+                                          :stroke="overallBudget?.percentage > 100 ? '#ef4444' : (overallBudget?.percentage > 80 ? '#f59e0b' : '#10b981')" 
+                                          stroke-width="8" stroke-linecap="round"
+                                          :stroke-dasharray="125" :stroke-dashoffset="125 - (125 * Math.min(overallBudget?.percentage || 0, 100) / 100)" />
+                                </svg>
+                                <div class="gauge-value">
+                                    <span class="val">{{ overallBudget?.percentage?.toFixed(0) || 0 }}%</span>
+                                    <span class="lbl">Utilized</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Burners -->
+                        <div class="analytics-card glass">
+                            <div class="card-header">
+                                <h3 class="card-title">Critical Categories</h3>
+                            </div>
+                            <div class="burner-list">
+                                <div v-for="b in [...categoryBudgets].sort((x,y) => y.percentage - x.percentage).slice(0,4)" :key="b.id" class="burner-item">
+                                    <div class="burner-info">
+                                        <span class="burner-label">{{ getCategoryDisplay(b.category) }}</span>
+                                        <span class="burner-val" :class="{ 'danger': b.percentage > 100 }">{{ b.percentage?.toFixed(0) }}%</span>
+                                    </div>
+                                    <div class="burner-bar-bg">
+                                        <div class="burner-bar-fill" :style="{ width: Math.min(b.percentage, 100) + '%' }" :class="{ 'danger': b.percentage > 100 }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Budget vs Reality Chart (Mockup SVG) -->
+                        <div class="analytics-card glass full-width">
+                            <div class="card-header">
+                                <h3 class="card-title">Monthly Budget Adherence</h3>
+                            </div>
+                            <div class="budget-chart">
+                                <div v-for="b in categoryBudgets" :key="b.id" class="chart-col">
+                                    <div class="bar-pair">
+                                        <div class="bar limit-bar" :title="'Limit: ' + b.amount_limit" :style="{ height: '100px' }"></div>
+                                        <div class="bar spend-bar" :title="'Spent: ' + b.spent" :class="{ 'over': b.spent > b.amount_limit }" :style="{ height: Math.min(100 * b.spent / b.amount_limit, 150) + 'px' }"></div>
+                                    </div>
+                                    <span class="col-label">{{ b.category }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div v-if="loading" class="loading">Loading...</div>
-
-        <div v-else>
-            <!-- Overall Budget Hero Card -->
-            <div v-if="overallBudget" class="card overall-card">
-                 <div class="overall-header">
-                     <div class="overall-title">
-                         <h2>🏁 Overall Monthly Limit</h2>
-                         <div class="overall-stats">
-                             <span class="badgex">Limit: ₹ {{ Number(overallBudget.amount_limit).toLocaleString() }}</span>
-                         </div>
-                     </div>
-                     <div class="actions">
-                         <button @click="editBudget(overallBudget)" class="btn-icon">✏️</button>
-                         <button @click="deleteBudget(overallBudget.id)" class="btn-icon danger">🗑️</button>
-                     </div>
-                 </div>
-                 
-                 <div class="main-progress">
-                      <div class="progress-labels-lg">
-                          <span class="big-amt">₹ {{ Number(overallBudget.spent).toLocaleString() }}</span>
-                          <span class="label-text">spent of ₹ {{ Number(overallBudget.amount_limit).toLocaleString() }}</span>
-                      </div>
-                      <div class="progress-bar-bg lg">
-                            <div class="progress-bar-fill" 
-                                 :style="{ width: Math.min(overallBudget.percentage, 100) + '%' }"
-                                 :class="{ 
-                                     'warning': overallBudget.percentage > 80 && overallBudget.percentage <= 100,
-                                     'danger': overallBudget.percentage > 100 
-                                 }"
-                            ></div>
-                        </div>
-                        <div class="remaining-text lg" :class="{ 'over': overallBudget.remaining < 0 }">
-                            {{ overallBudget.remaining >= 0 ? `₹ ${Number(overallBudget.remaining).toLocaleString()} remaining` : `Over by ₹ ${Math.abs(Number(overallBudget.remaining)).toLocaleString()}` }}
-                        </div>
-                 </div>
-            </div>
-
-            <!-- Summary Cards (Secondary) -->
-            <div class="grid summary-grid">
-                <div class="card summary-card">
-                    <h3>Total Budgeted</h3>
-                    <p class="amount">₹ {{ effectiveTotalBudget.toLocaleString() }}</p>
-                </div>
-                <div class="card summary-card">
-                    <h3>Total Spent</h3>
-                    <p class="amount">₹ {{ totalSpent.toLocaleString() }}</p>
-                </div>
-                 <div class="card summary-card">
-                    <h3>Remaining</h3>
-                     <p class="amount" :class="{ 'negative': totalRemaining < 0 }">₹ {{ totalRemaining.toLocaleString() }}</p>
-                </div>
-            </div>
-
-            <h3 class="section-title">Category Budgets</h3>
-            <!-- Budgets List -->
-            <div class="budgets-list">
-                <div v-for="b in categoryBudgets" :key="b.id" class="card budget-item">
-                    <div class="budget-header">
-                        <div class="cat-info">
-                            <span class="cat-name">{{ getCategoryDisplay(b.category) }}</span>
-                        </div>
-                        <div class="budget-actions">
-                            <button @click="editBudget(b)" class="btn-icon">✏️</button>
-                            <button @click="deleteBudget(b.id)" class="btn-icon danger">🗑️</button>
-                        </div>
-                    </div>
-                    
-                    <div class="progress-area">
-                        <div class="progress-labels">
-                            <span>₹ {{ Number(b.spent).toLocaleString() }} spent</span>
-                            <span>Limit: ₹ {{ Number(b.amount_limit).toLocaleString() }}</span>
-                        </div>
-                        <div class="progress-bar-bg">
-                            <div class="progress-bar-fill" 
-                                 :style="{ width: Math.min(b.percentage, 100) + '%' }"
-                                 :class="{ 
-                                     'warning': b.percentage > 80 && b.percentage <= 100,
-                                     'danger': b.percentage > 100 
-                                 }"
-                            ></div>
-                        </div>
-                        <div class="remaining-text" :class="{ 'over': b.remaining < 0 }">
-                            {{ b.remaining >= 0 ? `₹ ${Number(b.remaining).toLocaleString()} left` : `Over by ₹ ${Math.abs(Number(b.remaining)).toLocaleString()}` }}
-                        </div>
-                    </div>
-                </div>
-
-                <div v-if="categoryBudgets.length === 0" class="empty-state">
-                    <p>No category budgets set.</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal -->
+        <!-- Budget Modal -->
         <div v-if="showModal" class="modal-overlay-global">
-            <div class="modal-global">
+            <div class="modal-global glass">
                 <div class="modal-header">
-                    <h2 class="modal-title">{{ newBudget.category === 'OVERALL' ? 'Set Overall Limit' : 'Set Category Budget' }}</h2>
-                    <button class="btn-icon" @click="showModal = false">✕</button>
+                    <h2 class="modal-title">{{ newBudget.category === 'OVERALL' ? 'Total Monthly Limit' : 'Category Budget' }}</h2>
+                    <button class="btn-icon-circle" @click="showModal = false">✕</button>
                 </div>
-                <form @submit.prevent="saveBudget">
+
+                <form @submit.prevent="saveBudget" class="form-compact">
                     <div class="form-group" v-if="newBudget.category !== 'OVERALL'">
                         <label class="form-label">Category</label>
                         <CustomSelect 
@@ -238,13 +341,18 @@ onMounted(() => {
                             placeholder="Select Category"
                         />
                     </div>
+                    
                     <div class="form-group">
                         <label class="form-label">Monthly Limit (₹)</label>
-                        <input type="number" v-model="newBudget.amount_limit" class="form-input" required placeholder="5000" />
+                        <div class="amount-input-wrapper">
+                            <span class="input-prefix">₹</span>
+                            <input type="number" v-model="newBudget.amount_limit" class="form-input" required placeholder="5,000" />
+                        </div>
                     </div>
+
                     <div class="modal-footer">
-                        <button type="button" @click="showModal = false" class="btn btn-outline">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
+                        <button type="submit" class="btn-primary-glow">Save Budget</button>
                     </div>
                 </form>
             </div>
@@ -252,59 +360,363 @@ onMounted(() => {
     </MainLayout>
 </template>
 
-
 <style scoped>
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-.subtitle { color: var(--color-text-muted); margin-top: 0.5rem; }
+.budgets-view {
+    padding-bottom: 4rem;
+}
 
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
-.summary-card { padding: 1.5rem; text-align: center; }
-.summary-card h3 { font-size: 0.9rem; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.5rem; }
-.summary-card .amount { font-size: 1.5rem; font-weight: 700; color: var(--color-text-main); }
-.summary-card .amount.negative { color: var(--color-danger); }
+/* Premium Header Styling */
+.page-header-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    gap: 1.5rem;
+}
 
-.budgets-list { display: flex; flex-direction: column; gap: 1rem; }
-.budget-item { padding: 1.5rem; }
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
 
-.budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.cat-name { font-size: 1.1rem; font-weight: 600; }
+.page-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #111827;
+    margin: 0;
+    letter-spacing: -0.025em;
+}
 
-.progress-labels { display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 0.5rem; }
-.progress-bar-bg { background: var(--color-background); height: 12px; border-radius: 6px; overflow: hidden; border: 1px solid var(--color-border); }
-.progress-bar-fill { height: 100%; background: var(--color-success); border-radius: 6px; transition: width 0.3s ease; }
-.progress-bar-fill.warning { background: #facc15; } /* Yellow-400 */
-.progress-bar-fill.danger { background: var(--color-danger); }
+.header-tabs {
+    display: flex;
+    gap: 0.125rem;
+    background: #f3f4f6;
+    padding: 0.125rem;
+    border-radius: 0.625rem;
+}
 
-.remaining-text { font-size: 0.85rem; margin-top: 0.5rem; text-align: right; color: var(--color-text-muted); }
-.remaining-text.over { color: var(--color-danger); font-weight: 600; }
+.tab-btn {
+    padding: 0.375rem 1rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
 
-.loading { text-align: center; padding: 2rem; color: var(--color-text-muted); }
-.empty-state { text-align: center; padding: 3rem; background: var(--color-surface); border: 2px dashed var(--color-border); border-radius: 1rem; color: var(--color-text-muted); }
+.tab-btn.active {
+    background: white;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
 
-/* Globals reused */
-.modal-overlay-global { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-.modal-global { background: var(--color-surface); padding: 2rem; border-radius: 1rem; width: 100%; max-width: 500px; box-shadow: var(--shadow-xl); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-.modal-title { margin: 0; font-size: 1.25rem; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; }
-.form-group { margin-bottom: 1rem; }
-.form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-.form-input { width: 100%; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: var(--color-background); color: var(--color-text-main); }
-.btn-icon { background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 0.2rem; }
-.btn-icon:hover { background: var(--color-background); border-radius: 4px; }
-.danger { color: var(--color-danger); }
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+}
 
-/* Overall Card Styles */
-.overall-card { background: linear-gradient(135deg, var(--color-surface), var(--color-background)); border: 2px solid var(--color-primary); padding: 2rem; margin-bottom: 2rem; }
-.overall-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
-.overall-title h2 { margin: 0; font-size: 1.5rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; }
-.progress-labels-lg { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; }
-.big-amt { font-size: 2.5rem; font-weight: 800; color: var(--color-text-main); line-height: 1; }
-.label-text { color: var(--color-text-muted); font-size: 1.1rem; }
+.btn-primary-glow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+    color: white;
+    border: none;
+    border-radius: 0.625rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 10px rgba(79, 70, 229, 0.15);
+}
 
-.progress-bar-bg.lg { height: 24px; border-radius: 12px; }
-.remaining-text.lg { font-size: 1rem; margin-top: 1rem; font-weight: 500; }
+.btn-outline-compact {
+    padding: 0.5rem 1rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.625rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #4b5563;
+    cursor: pointer;
+    transition: all 0.2s;
+}
 
-.section-title { font-size: 1.25rem; margin-bottom: 1rem; color: var(--color-text-main); margin-top: 2rem; }
-.header-actions { display: flex; gap: 1rem; }
+.btn-outline-compact:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+/* Overall Hero Card */
+.overall-glass-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1.25rem;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+}
+
+.price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.currency { font-size: 1.25rem; font-weight: 600; color: #6b7280; }
+.amount-large { font-size: 2.25rem; font-weight: 800; color: #111827; letter-spacing: -0.05em; }
+.separator { font-size: 1.5rem; color: #d1d5db; margin: 0 0.5rem; }
+.total-limit { font-size: 1.25rem; font-weight: 600; color: #6b7280; }
+
+.progress-container-lg {
+    margin-top: 1.5rem;
+}
+
+.progress-bar-bg-lg {
+    height: 12px;
+    background: #f3f4f6;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-bar-fill-lg {
+    height: 100%;
+    background: #10b981;
+    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.progress-bar-fill-lg.warning { background: #f59e0b; }
+.progress-bar-fill-lg.danger { background: #ef4444; }
+
+.progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.75rem;
+}
+
+.percentage-badge {
+    padding: 0.25rem 0.625rem;
+    background: #ecfdf5;
+    color: #059669;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.percentage-badge.over { background: #fef2f2; color: #dc2626; }
+
+.remaining-text {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.remaining-text.over { color: #dc2626; }
+
+/* Summary Widgets */
+.summary-widgets-budget {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.875rem;
+    margin-bottom: 2rem;
+}
+
+/* Category Grid */
+.budget-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.875rem;
+}
+
+.glass-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1rem;
+    transition: all 0.2s;
+}
+
+.budget-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+}
+
+.progress-info-compact {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    margin-top: 0.75rem;
+}
+
+.spent { font-size: 1rem; font-weight: 700; color: #111827; }
+.limit { font-size: 0.75rem; color: #9ca3af; }
+
+.progress-bar-bg-sm {
+    height: 6px;
+    background: #f3f4f6;
+    border-radius: 3px;
+    margin: 0.5rem 0;
+    overflow: hidden;
+}
+
+.progress-bar-fill-sm {
+    height: 100%;
+    background: #10b981;
+}
+.progress-bar-fill-sm.warning { background: #f59e0b; }
+.progress-bar-fill-sm.danger { background: #ef4444; }
+
+.remaining-footer {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-align: right;
+}
+
+.remaining-footer.over { color: #dc2626; }
+
+/* Analytics View */
+.analytics-grid-budget {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.analytics-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1.25rem;
+}
+
+.full-width { grid-column: 1 / -1; }
+
+.card-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+/* Gauge Mockup */
+.gauge-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding-top: 1rem;
+}
+
+.gauge-svg {
+    width: 200px;
+    height: 120px;
+}
+
+.gauge-value {
+    position: absolute;
+    bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.gauge-value .val { font-size: 1.5rem; font-weight: 800; color: #111827; }
+.gauge-value .lbl { font-size: 0.7rem; color: #9ca3af; text-transform: uppercase; font-weight: 600; }
+
+/* Burner List */
+.burner-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.burner-info { display: flex; justify-content: space-between; margin-bottom: 0.25rem; }
+.burner-label { font-size: 0.8125rem; font-weight: 600; color: #4b5563; }
+.burner-val { font-size: 0.8125rem; font-weight: 700; color: #10b981; }
+.burner-val.danger { color: #ef4444; }
+
+.burner-bar-bg { height: 4px; background: #f3f4f6; border-radius: 2px; overflow: hidden; }
+.burner-bar-fill { height: 100%; background: #10b981; }
+.burner-bar-fill.danger { background: #ef4444; }
+
+/* Budget Chart Mockup */
+.budget-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+    height: 200px;
+    padding: 1rem;
+    overflow-x: auto;
+}
+
+.chart-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 60px;
+}
+
+.bar-pair {
+    position: relative;
+    width: 24px;
+    height: 150px;
+    display: flex;
+    align-items: flex-end;
+}
+
+.bar { width: 100%; border-radius: 4px 4px 0 0; }
+.limit-bar { background: #f3f4f6; position: absolute; bottom: 0; left: 0; z-index: 1; opacity: 0.5; }
+.spend-bar { background: #10b981; position: absolute; bottom: 0; left: 0; z-index: 2; }
+.spend-bar.over { background: #ef4444; }
+
+.col-label { font-size: 0.65rem; font-weight: 600; color: #9ca3af; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; }
+
+/* States & Global Reused */
+.loading-state { padding: 4rem 0; text-align: center; color: #6b7280; }
+.loader-spinner { width: 32px; height: 32px; border: 3px solid #f3f3f3; border-top: 3px solid #4f46e5; border-radius: 50%; margin: 0 auto 1rem; animation: spin 1s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+.animate-in { animation: slideUp 0.4s ease-out forwards; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Shared Stat Cards */
+.mini-stat-card { background: white; border: 1px solid #e5e7eb; border-radius: 0.875rem; padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; transition: all 0.2s; }
+.mini-stat-card:hover { transform: translateY(-2px); border-color: #d1d5db; }
+.stat-top { display: flex; justify-content: space-between; align-items: center; }
+.stat-label { font-size: 0.7rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-icon-bg { width: 32px; height: 32px; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+.stat-icon-bg.gray { background: #f3f4f6; }
+.stat-icon-bg.red { background: #fef2f2; }
+.stat-icon-bg.green { background: #ecfdf5; }
+.stat-value { font-size: 1.25rem; font-weight: 800; color: #111827; letter-spacing: -0.025em; }
+.stat-value.negative { color: #dc2626; }
+
+.btn-icon-circle { width: 2.25rem; height: 2.25rem; border-radius: 50%; border: none; background: #f9fafb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
+.btn-icon-circle:hover { background: #f3f4f6; }
+.btn-icon-circle.danger:hover { background: #fef2f2; color: #dc2626; }
+.btn-icon-circle-sm { width: 1.75rem; height: 1.75rem; border-radius: 50%; border: none; background: #f9fafb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 0.75rem; }
+.btn-icon-circle-sm:hover { background: #f3f4f6; }
+
+.section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.875rem; color: #6b7280; }
+
+.empty-card { border: 2px dashed #e5e7eb; border-radius: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; cursor: pointer; transition: all 0.2s; color: #9ca3af; }
+.empty-card:hover { border-color: #4f46e5; background: #f5f3ff; color: #4f46e5; }
+.empty-plus { font-size: 1.5rem; font-weight: 300; margin-bottom: 0.5rem; }
+
+/* Modal Enhancement */
+.form-compact .form-group { margin-bottom: 1rem; }
+.amount-input-wrapper { position: relative; }
+.input-prefix { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); font-weight: 600; color: #6b7280; }
+.amount-input-wrapper .form-input { padding-left: 2rem; }
+.btn-secondary { padding: 0.625rem 1.25rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; font-weight: 600; cursor: pointer; }
+
+/* Glow Effects */
+.h-glow-primary:hover { box-shadow: 0 4px 15px rgba(79, 70, 229, 0.1); }
+.h-glow-success:hover { box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1); }
+.h-glow-danger:hover { box-shadow: 0 4px 15px rgba(239, 68, 68, 0.1); }
 </style>

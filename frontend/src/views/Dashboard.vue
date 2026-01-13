@@ -54,10 +54,10 @@ onMounted(async () => {
 
 <style scoped>
 .dashboard-header {
-    margin-bottom: var(--spacing-xl);
+    margin-bottom: 1.25rem;
 }
 h1 {
-    font-size: var(--font-size-2xl);
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-text-main);
 }
@@ -68,14 +68,14 @@ h1 {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: var(--spacing-lg);
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 0.875rem;
 }
 
 .stat-card {
     background: var(--color-surface);
-    padding: var(--spacing-lg);
-    border-radius: 1rem; /* Softer corners */
+    padding: 1rem;
+    border-radius: 0.875rem; /* Softer corners */
     box-shadow: var(--shadow-sm);
     border: 1px solid var(--color-border);
     transition: transform 0.2s, box-shadow 0.2s;
@@ -89,10 +89,10 @@ h1 {
 }
 
 .stat-icon {
-    width: 48px; height: 48px;
-    border-radius: 12px;
+    width: 40px; height: 40px;
+    border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     background: var(--color-background);
 }
 .income { background: #ecfdf5; color: #10b981; }
@@ -107,7 +107,7 @@ h1 {
     margin-bottom: 0.25rem;
 }
 .amount {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-text-main);
     letter-spacing: -0.02em;

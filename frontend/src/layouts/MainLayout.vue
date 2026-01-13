@@ -119,10 +119,6 @@ onUnmounted(() => {
                         <span class="icon">📊</span>
                         <span class="label" v-if="!isSidebarCollapsed">Dashboard</span>
                     </router-link>
-                    <router-link to="/accounts" class="nav-item" active-class="active">
-                        <span class="icon">💳</span>
-                        <span class="label" v-if="!isSidebarCollapsed">Accounts</span>
-                    </router-link>
                     <router-link to="/transactions" class="nav-item" active-class="active">
                         <span class="icon">💸</span>
                         <span class="label" v-if="!isSidebarCollapsed">Transactions</span>
@@ -175,13 +171,13 @@ onUnmounted(() => {
 
 /* Global Header */
 .global-header {
-    height: 64px;
+    height: 52px;
     background: white;
     border-bottom: 1px solid var(--color-border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 var(--spacing-xl);
+    padding: 0 var(--spacing-lg);
     z-index: 100;
     box-shadow: var(--shadow-sm);
 }
@@ -228,10 +224,10 @@ onUnmounted(() => {
 
 .notification-bell { font-size: 1.2rem; }
 .user-avatar {
-    width: 36px; height: 36px;
+    width: 32px; height: 32px;
     background: var(--color-primary-light);
     color: var(--color-primary-dark);
-    font-size: 1.2rem;
+    font-size: 1rem;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     border: 2px solid white;
@@ -326,13 +322,13 @@ onUnmounted(() => {
 .sidebar-toggle-area { padding: var(--spacing-sm); display: flex; justify-content: flex-end; border-bottom: 1px solid var(--color-border); }
 .collapse-btn { background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 1.2rem; padding: 0.25rem 0.5rem; }
 .collapse-btn:hover { color: var(--color-primary); }
-.sidebar-nav { flex: 1; padding: var(--spacing-md) var(--spacing-sm); display: flex; flex-direction: column; gap: var(--spacing-xs); }
-.nav-item { display: flex; align-items: center; padding: 0.75rem 1rem; color: var(--color-text-muted); text-decoration: none; border-radius: 0.5rem; white-space: nowrap; overflow: hidden; transition: all 0.2s; }
+.sidebar-nav { flex: 1; padding: var(--spacing-sm) var(--spacing-xs); display: flex; flex-direction: column; gap: 2px; }
+.nav-item { display: flex; align-items: center; padding: 0.5rem 0.75rem; color: var(--color-text-muted); text-decoration: none; border-radius: 0.5rem; white-space: nowrap; overflow: hidden; transition: all 0.2s; font-size: 0.875rem; }
 .nav-item:hover { color: var(--color-primary-dark); background: var(--color-primary-light); }
 .nav-item.active { background: var(--color-primary); color: white; box-shadow: var(--shadow-sm); }
-.nav-item .icon { font-size: 1.2rem; min-width: 24px; margin-right: 12px; text-align: center; }
+.nav-item .icon { font-size: 1.1rem; min-width: 20px; margin-right: 10px; text-align: center; }
 .sidebar.collapsed .nav-item { justify-content: center; padding: 0.75rem 0; }
 .sidebar.collapsed .nav-item .icon { margin-right: 0; }
-.main-content { flex: 1; overflow-y: auto; background: var(--color-background); padding: var(--spacing-xl); }
+.main-content { flex: 1; overflow-y: auto; background: var(--color-background); padding: var(--spacing-lg); }
 .page-container { max-width: 1600px; margin: 0 auto; }
 </style>
