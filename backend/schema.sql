@@ -13,7 +13,9 @@ CREATE TABLE users (
 	tenant_id VARCHAR NOT NULL, 
 	email VARCHAR NOT NULL, 
 	password_hash VARCHAR NOT NULL, 
-	role VARCHAR NOT NULL, 
+	full_name VARCHAR,
+	avatar VARCHAR,
+	role VARCHAR DEFAULT 'ADULT' NOT NULL, 
 	scopes VARCHAR, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -87,5 +89,52 @@ CREATE TABLE budgets (
 	updated_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE email_configurations (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	email VARCHAR NOT NULL, 
+	password VARCHAR NOT NULL, 
+	imap_server VARCHAR DEFAULT 'imap.gmail.com', 
+	folder VARCHAR DEFAULT 'INBOX', 
+	is_active BOOLEAN DEFAULT TRUE, 
+	auto_sync_enabled BOOLEAN DEFAULT FALSE, 
+	last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE email_sync_logs (
+	id VARCHAR NOT NULL, 
+	config_id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	started_at TIMESTAMP WITHOUT TIME ZONE, 
+	completed_at TIMESTAMP WITHOUT TIME ZONE, 
+	status VARCHAR DEFAULT 'running', 
+	items_processed NUMERIC(10, 0) DEFAULT 0, 
+	message VARCHAR, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(config_id) REFERENCES email_configurations (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE pending_transactions (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	account_id VARCHAR NOT NULL, 
+	amount NUMERIC(15, 2) NOT NULL, 
+	date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	description VARCHAR, 
+	recipient VARCHAR, 
+	category VARCHAR, 
+	source VARCHAR NOT NULL, 
+	raw_message VARCHAR, 
+	external_id VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
+	FOREIGN KEY(account_id) REFERENCES accounts (id)
 );
 
