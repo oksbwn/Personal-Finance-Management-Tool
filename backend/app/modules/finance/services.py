@@ -633,7 +633,9 @@ class FinanceService:
                 ("Food & Dining", "🍔"), ("Groceries", "🥦"), ("Transport", "🚌"), 
                 ("Shopping", "🛍️"), ("Utilities", "💡"), ("Housing", "🏠"),
                 ("Healthcare", "🏥"), ("Entertainment", "🎬"), ("Salary", "💰"),
-                ("Investment", "📈"), ("Education", "🎓"), ("Other", "📦")
+                ("Investment", "📈"), ("Education", "🎓"), ("Dividend", "💵"),
+                ("FD Matured", "🏦"), ("Rent", "🏘️"), ("Gift", "🎁"),
+                 ("Other", "📦")
             ]
             new_cats = []
             for name, icon in defaults:
