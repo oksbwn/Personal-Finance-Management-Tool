@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Database
-    DATABASE_URL: str = "duckdb:///./family_finance.duckdb"
+    DATABASE_URL: str = "duckdb:///./family_finance_v3.duckdb"
     
     # Security
     SECRET_KEY: str = "CHANGE_THIS_TO_A_SECURE_SECRET_IN_PRODUCTION"

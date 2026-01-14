@@ -17,7 +17,7 @@ class AccountBase(BaseModel):
 
 class AccountCreate(AccountBase):
     owner_id: Optional[UUID] = None
-    owner_name: Optional[str] = None
+
     tenant_id: Optional[Union[UUID, str]] = None # Allow specifying a tenant
 
 class AccountUpdate(BaseModel):
@@ -25,7 +25,7 @@ class AccountUpdate(BaseModel):
     type: Optional[AccountType] = None
     currency: Optional[str] = None
     account_mask: Optional[str] = None
-    owner_name: Optional[str] = None
+
     owner_id: Optional[UUID] = None
     balance: Optional[Decimal] = None
     credit_limit: Optional[Decimal] = None
@@ -39,7 +39,7 @@ class AccountRead(AccountBase):
     id: Union[UUID, str]
     tenant_id: Union[UUID, str]
     owner_id: Optional[Union[UUID, str]] = None
-    owner_name: Optional[str] = None
+
     created_at: datetime
 
     class Config:

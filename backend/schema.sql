@@ -29,7 +29,6 @@ CREATE TABLE accounts (
 	type VARCHAR NOT NULL, 
 	currency VARCHAR NOT NULL, 
 	account_mask VARCHAR,
-	owner_name VARCHAR,
 	balance NUMERIC(15, 2),
 	credit_limit NUMERIC(15, 2),
 	is_verified BOOLEAN DEFAULT TRUE NOT NULL,
@@ -65,8 +64,7 @@ CREATE TABLE transactions (
 	source VARCHAR NOT NULL DEFAULT 'MANUAL',
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(account_id) REFERENCES accounts (id)
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 
 CREATE TABLE category_rules (
@@ -135,8 +133,7 @@ CREATE TABLE pending_transactions (
 	external_id VARCHAR, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(account_id) REFERENCES accounts (id)
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 
 CREATE TABLE unparsed_messages (
