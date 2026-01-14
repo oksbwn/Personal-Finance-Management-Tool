@@ -2,6 +2,18 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { 
+    LayoutDashboard, 
+    Wallet, 
+    PieChart, 
+    Sparkles, 
+    Settings, 
+    Bell, 
+    LogOut,
+    ChevronLeft,
+    ChevronRight,
+    User
+} from 'lucide-vue-next'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const auth = useAuthStore()
@@ -51,11 +63,11 @@ onUnmounted(() => {
         <!-- Global Top Header -->
         <header class="global-header glass">
             <div class="header-left">
-                <div class="brand">
-                    <span class="logo-icon">✨</span>
-                    <span class="brand-text">Family Finance</span>
-                    <span class="brand-tagline">Whole family finance</span>
-                </div>
+                <router-link to="/" class="brand">
+                    <img src="/logo.png" alt="Finerra Logo" class="logo-image" />
+                    <span class="brand-text">Finerra</span>
+                    <span class="brand-tagline">Refine Your Finances</span>
+                </router-link>
             </div>
             
             <div class="header-center">
@@ -66,7 +78,7 @@ onUnmounted(() => {
 
             <div class="header-right">
                 <div class="notification-trigger">
-                    <div class="notification-bell">🔔</div>
+                    <Bell :size="20" class="text-muted" />
                 </div>
 
                 <div class="user-menu-container" ref="userMenuContainer">
@@ -89,7 +101,7 @@ onUnmounted(() => {
                             </div>
                             <div class="dropdown-divider"></div>
                             <button class="dropdown-item danger" @click="logout">
-                                🚪 Logout
+                                <LogOut :size="16" /> Logout
                             </button>
                         </div>
                     </transition>
@@ -102,29 +114,29 @@ onUnmounted(() => {
             <aside class="sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
                 <div class="sidebar-toggle-area">
                     <button class="collapse-btn" @click="toggleSidebar">
-                        {{ isSidebarCollapsed ? '→' : '←' }}
+                        <component :is="isSidebarCollapsed ? ChevronRight : ChevronLeft" :size="20" />
                     </button>
                 </div>
 
                 <nav class="sidebar-nav">
                     <router-link to="/" class="nav-item" active-class="active">
-                        <span class="icon">📊</span>
+                        <span class="icon"><LayoutDashboard :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Dashboard</span>
                     </router-link>
                     <router-link to="/transactions" class="nav-item" active-class="active">
-                        <span class="icon">💸</span>
+                        <span class="icon"><Wallet :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Transactions</span>
                     </router-link>
                     <router-link to="/budgets" class="nav-item" active-class="active">
-                        <span class="icon">📉</span>
+                        <span class="icon"><PieChart :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Budgets</span>
                     </router-link>
                     <router-link to="/insights" class="nav-item" active-class="active">
-                        <span class="icon">✨</span>
+                        <span class="icon"><Sparkles :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Insights</span>
                     </router-link>
                     <router-link to="/settings" class="nav-item" active-class="active">
-                        <span class="icon">⚙️</span>
+                        <span class="icon"><Settings :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Settings</span>
                     </router-link>
                 </nav>
@@ -166,10 +178,13 @@ onUnmounted(() => {
     backdrop-filter: blur(10px);
 }
 .header-left { display: flex; align-items: center; }
-.brand { display: flex; align-items: baseline; gap: 0.75rem; }
-.brand-text { font-size: 1.25rem; font-weight: 700; color: var(--color-primary); }
-.brand-tagline { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; }
-.logo-icon { font-size: 1.5rem; }
+.brand { display: flex; align-items: center; gap: 0.75rem; text-decoration: none; cursor: pointer; }
+.brand-text { font-size: 1.4rem; font-weight: 700; color: var(--color-primary); letter-spacing: -0.02em; }
+.brand-tagline { font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; margin-left: auto; align-self: center; display: none; }
+.logo-image { height: 32px; width: auto; object-fit: contain; }
+@media (min-width: 1024px) {
+    .brand-tagline { display: block; }
+}
 
 .header-center { flex: 1; display: flex; justify-content: center; }
 .search-bar input {
@@ -315,12 +330,41 @@ onUnmounted(() => {
 .sidebar-toggle-area { padding: var(--spacing-sm); display: flex; justify-content: flex-end; border-bottom: 1px solid var(--color-border); }
 .collapse-btn { background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 1.2rem; padding: 0.25rem 0.5rem; }
 .collapse-btn:hover { color: var(--color-primary); }
-.sidebar-nav { flex: 1; padding: var(--spacing-sm) var(--spacing-xs); display: flex; flex-direction: column; gap: 2px; }
-.nav-item { display: flex; align-items: center; padding: 0.5rem 0.75rem; color: var(--color-text-muted); text-decoration: none; border-radius: 0.5rem; white-space: nowrap; overflow: hidden; transition: all 0.2s; font-size: 0.875rem; }
-.nav-item:hover { color: var(--color-primary-dark); background: var(--color-primary-light); }
-.nav-item.active { background: var(--color-primary); color: white; box-shadow: var(--shadow-sm); }
-.nav-item .icon { font-size: 1.1rem; min-width: 20px; margin-right: 10px; text-align: center; }
-.sidebar.collapsed .nav-item { justify-content: center; padding: 0.75rem 0; }
+.sidebar-nav { flex: 1; padding: 1.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.nav-item { 
+    display: flex; align-items: center; 
+    padding: 0.75rem 1rem; 
+    color: var(--color-text-muted); 
+    text-decoration: none; 
+    border-radius: 0px; 
+    white-space: nowrap; 
+    overflow: hidden; 
+    transition: color 0.2s ease, background-color 0.2s ease; 
+    font-size: 0.95rem; 
+    font-weight: 500;
+}
+.nav-item:hover { 
+    color: var(--color-text-main); 
+    background: var(--color-background); 
+}
+.nav-item.active { 
+    background: var(--color-primary-light); 
+    color: var(--color-primary); 
+    font-weight: 600;
+}
+.nav-item .icon { 
+    font-size: 1.25rem; 
+    width: 24px; 
+    margin-right: 12px; 
+    text-align: center; 
+    display: flex; justify-content: center;
+}
+.sidebar.collapsed .nav-item { 
+    padding: 0.875rem 0; 
+    justify-content: center; 
+    border-radius: 0.5rem;
+}
+.sidebar.collapsed .nav-item:hover { transform: none; background: var(--color-background); }
 .sidebar.collapsed .nav-item .icon { margin-right: 0; }
 .main-content { flex: 1; overflow-y: auto; background: var(--color-background); padding: var(--spacing-lg); }
 .page-container { max-width: 1600px; margin: 0 auto; }
