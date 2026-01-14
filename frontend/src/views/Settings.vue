@@ -41,8 +41,9 @@ const newAccount = ref({
     account_mask: '',
     balance: 0,
     credit_limit: null,
-    owner_name: '',
-    is_verified: true
+    is_verified: true,
+    tenant_id: '',
+    owner_id: ''
 })
 
 // Family Member Modal State
@@ -68,12 +69,25 @@ const verifiedAccounts = computed(() => {
 const untrustedAccounts = computed(() => accounts.value.filter(a => a.is_verified === false))
 
 const accountMetrics = computed(() => {
-    return {
-        total: accounts.value.reduce((sum, a) => sum + (a.balance || 0), 0),
-        cash: accounts.value.filter(a => a.type === 'CASH').reduce((sum, a) => sum + (a.balance || 0), 0),
-        bank: accounts.value.filter(a => a.type === 'BANK').reduce((sum, a) => sum + (a.balance || 0), 0),
-        credit: accounts.value.filter(a => a.type === 'CREDIT').reduce((sum, a) => sum + (a.balance || 0), 0),
-    }
+    let total = 0
+    let cash = 0
+    let bank = 0
+    let credit = 0
+
+    accounts.value.forEach(a => {
+        const bal = Number(a.balance || 0)
+        if (a.type === 'CREDIT_CARD' || a.type === 'LOAN') {
+            credit += bal
+            total -= bal
+        } else {
+            // Bank, Cash, Investment, Wallet
+            total += bal
+            if (a.type === 'BANK') bank += bal
+            if (a.type === 'WALLET' || a.type === 'CASH') cash += bal
+        }
+    })
+
+    return { total, cash, bank, credit }
 })
 
 // Rules/Categories State
@@ -267,7 +281,6 @@ function openCreateAccountModal() {
         name: '', type: 'BANK', currency: 'INR', 
         account_mask: '', balance: 0, 
         credit_limit: null,
-        owner_name: '', 
         is_verified: true,
         tenant_id: tenants.value[0]?.id || '',
         owner_id: ''
@@ -275,7 +288,7 @@ function openCreateAccountModal() {
     showAccountModal.value = true
 }
 
-function openEditAccountModal(account: any) {
+function openEditAccountModal(account: any, autoVerify: boolean = false) {
     editingAccountId.value = account.id
     newAccount.value = {
         name: account.name,
@@ -284,10 +297,9 @@ function openEditAccountModal(account: any) {
         account_mask: account.account_mask,
         balance: account.balance,
         credit_limit: account.credit_limit,
-        owner_name: account.owner_name,
         owner_id: account.owner_id,
         tenant_id: account.tenant_id,
-        is_verified: account.is_verified
+        is_verified: autoVerify ? true : account.is_verified
     }
     showAccountModal.value = true
 }
@@ -319,8 +331,7 @@ const resolveOwnerAvatar = (account: any) => {
         const member = familyMembers.value.find(m => m.id === account.owner_id)
         if (member && member.avatar) return member.avatar
     }
-    // Fallback to name matching
-    return getOwnerIcon(account.owner_name || '')
+    return '👨‍👩‍👧‍👦' // Family icon as fallback
 }
 
 const resolveOwnerName = (account: any) => {
@@ -328,7 +339,7 @@ const resolveOwnerName = (account: any) => {
         const member = familyMembers.value.find(m => m.id === account.owner_id)
         if (member) return member.full_name || member.email
     }
-    return account.owner_name || 'Family'
+    return 'Family'
 }
 
 const getOwnerIcon = (name: string) => {
@@ -477,6 +488,7 @@ async function openHistoryModal(config: any) {
     try {
         const res = await financeApi.getEmailSyncLogs(config.id)
         syncLogs.value = res.data
+    } catch (e) {
         notify.error("Failed to fetch logs")
     }
 }
@@ -513,13 +525,6 @@ function getAccountTypeLabel(type: string) {
     return labels[type] || type
 }
 
-function getLogIcon(status: string) {
-    if (!dateStr) return { day: '-', meta: '' }
-    const d = new Date(dateStr)
-    const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-    const meta = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-    return { day, meta }
-}
 
 function getLogIcon(status: string) {
     if (status === 'completed') return '✅'
@@ -900,7 +905,7 @@ async function handleMemberSubmit() {
                                     </div>
                                     <div class="card-actions-row">
                                         <button @click="deleteAccountRequest(acc)" class="btn-icon-circle danger-subtle">🗑️</button>
-                                        <button @click="openEditAccountModal(acc)" class="btn-verify">Verify</button>
+                                        <button @click="openEditAccountModal(acc, true)" class="btn-verify">Verify</button>
                                     </div>
                                 </div>
                                 <div class="card-bottom">
@@ -1272,19 +1277,6 @@ async function handleMemberSubmit() {
                         <input v-model="newAccount.name" class="form-input" required placeholder="e.g. HDFC Savings" />
                     </div>
                     
-                    <div class="form-group">
-                        <label class="form-label">Owner (Person)</label>
-                        <CustomSelect 
-                            v-model="newAccount.owner_name" 
-                            :options="[
-                                { label: 'Shared / Family', value: '' },
-                                { label: 'Dad', value: 'Dad' },
-                                { label: 'Mom', value: 'Mom' },
-                                { label: 'Kid', value: 'Kid' }
-                            ]"
-                            placeholder="Select Owner"
-                        />
-                    </div>
 
                     <div class="form-row">
                         <div class="form-group half">
@@ -1335,6 +1327,17 @@ async function handleMemberSubmit() {
                             <label class="form-label">Total Credit Limit</label>
                             <input type="number" v-model.number="newAccount.credit_limit" class="form-input" step="0.01" placeholder="e.g. 100000" />
                         </div>
+                    </div>
+
+                    <div class="setting-toggle-row">
+                        <div class="toggle-label">
+                            <span class="font-medium">Verified Account</span>
+                            <span class="text-xs text-muted">Trust transactions from this source</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="newAccount.is_verified">
+                            <span class="slider round"></span>
+                        </label>
                     </div>
 
                     <div class="modal-footer">
