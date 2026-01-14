@@ -52,11 +52,15 @@ class TransactionBase(BaseModel):
     recipient: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[List[str]] = None
+    is_transfer: bool = False
+    linked_transaction_id: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
     account_id: UUID
     external_id: Optional[str] = None
     source: Optional[str] = "MANUAL"
+    is_transfer: bool = False
+    to_account_id: Optional[str] = None
 
 class TransactionUpdate(BaseModel):
     description: Optional[str] = None
@@ -64,6 +68,8 @@ class TransactionUpdate(BaseModel):
     tags: Optional[List[str]] = None
     date: Optional[datetime] = None
     amount: Optional[Decimal] = None
+    is_transfer: Optional[bool] = None
+    to_account_id: Optional[str] = None
 
 class Transaction(TransactionBase):
     id: UUID
@@ -82,6 +88,7 @@ class TransactionRead(TransactionBase):
     type: Optional[str] = "DEBIT"
     source: Optional[str] = "MANUAL"
     external_id: Optional[str] = None
+    transfer_account_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -101,6 +108,8 @@ class CategoryRuleBase(BaseModel):
     category: str
     keywords: List[str]
     priority: int = 0
+    is_transfer: bool = False
+    to_account_id: Optional[str] = None
 
 class CategoryRuleCreate(CategoryRuleBase):
     pass

@@ -130,6 +130,8 @@ class FinanceService:
             tags=tags_str,
             external_id=transaction.external_id,
             type=txn_type,
+            is_transfer=transaction.is_transfer,
+            linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
             source=transaction.source if hasattr(transaction, 'source') else "MANUAL"
         )
         
@@ -222,7 +224,57 @@ class FinanceService:
             return None
             
         update_data = txn_update.model_dump(exclude_unset=True)
+        
+        # Check if transfer status is changing
+        is_transfer_update = update_data.get('is_transfer')
+        to_account_id = update_data.get('to_account_id')
+        
+        # Case A: Converting to Transfer (or updating transfer details)
+        if is_transfer_update is True:
+            if not to_account_id and not db_txn.linked_transaction_id:
+                # If conversion, we need a destination
+                 # If just updating other fields of an existing transfer, to_account_id might be missing from update
+                 pass 
+
+            if to_account_id:
+                # 1. Unlink old if exists (e.g. changing destination)
+                if db_txn.linked_transaction_id:
+                     old_linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
+                     if old_linked: db.delete(old_linked)
+                
+                # 2. Create new linked transaction
+                from backend.app.modules.finance.models import TransactionType
+                import uuid
+                
+                target_txn = models.Transaction(
+                    id=str(uuid.uuid4()),
+                    tenant_id=tenant_id,
+                    account_id=to_account_id,
+                    amount=-db_txn.amount if 'amount' not in update_data else -update_data['amount'],
+                    date=db_txn.date if 'date' not in update_data else update_data['date'],
+                    description=f"Transfer from {db_txn.account_id} (Linked)",
+                    recipient=db_txn.recipient,
+                    category="Transfer",
+                    type=TransactionType.CREDIT if (db_txn.amount < 0) else TransactionType.DEBIT,
+                    is_transfer=True,
+                    source=db_txn.source,
+                    linked_transaction_id=db_txn.id
+                )
+                db.add(target_txn)
+                db_txn.linked_transaction_id = target_txn.id
+                db_txn.category = "Transfer" # Force category
+                update_data['category'] = "Transfer"
+
+        # Case B: Disabling Transfer
+        elif is_transfer_update is False:
+            if db_txn.linked_transaction_id:
+                linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
+                if linked: db.delete(linked)
+                db_txn.linked_transaction_id = None
+        
+        # Apply standard updates
         for key, value in update_data.items():
+            if key in ['is_transfer', 'to_account_id']: continue # Handled above
             if key == 'tags' and value is not None:
                 setattr(db_txn, key, json.dumps(value))
             else:
@@ -260,7 +312,15 @@ class FinanceService:
         ).order_by(ingestion_models.PendingTransaction.created_at.desc()).all()
 
     @staticmethod
-    def approve_pending_transaction(db: Session, pending_id: str, tenant_id: str, category_override: Optional[str] = None):
+    def approve_pending_transaction(
+        db: Session, 
+        pending_id: str, 
+        tenant_id: str, 
+        category_override: Optional[str] = None,
+        is_transfer_override: bool = False,
+        to_account_id_override: Optional[str] = None,
+        create_rule: bool = False
+    ):
         from backend.app.modules.ingestion import models as ingestion_models
         pending = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.id == pending_id,
@@ -268,6 +328,23 @@ class FinanceService:
         ).first()
         if not pending: return None
         
+        # Apply manual overrides if provided
+        final_is_transfer = is_transfer_override or pending.is_transfer
+        final_to_account_id = to_account_id_override or pending.to_account_id
+        final_category = category_override or pending.category or "Uncategorized"
+        
+        # 1. Create Rule if requested (Caching manual decision)
+        if create_rule and pending.description:
+            rule_create = schemas.CategoryRuleCreate(
+                name=f"Rule for {pending.description[:20]}...",
+                category=final_category,
+                keywords=[pending.description],
+                is_transfer=final_is_transfer,
+                to_account_id=final_to_account_id,
+                priority=10
+            )
+            FinanceService.create_category_rule(db, rule_create, tenant_id)
+
         # Convert to real transaction
         txn_create = schemas.TransactionCreate(
             account_id=pending.account_id,
@@ -275,14 +352,24 @@ class FinanceService:
             date=pending.date,
             description=pending.description,
             recipient=pending.recipient,
-            category=category_override or pending.category or "Uncategorized",
+            category=final_category,
             external_id=pending.external_id,
             source=pending.source,
+            is_transfer=final_is_transfer,
+            to_account_id=final_to_account_id,
             tags=[]
         )
         
-        # We reuse create_transaction
-        real_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
+        # If it's a transfer, let TransferService handle it
+        if txn_create.is_transfer and txn_create.to_account_id:
+            from backend.app.modules.finance.transfer_service import TransferService
+            # We need to temporarily update pending object fields so TransferService uses correct data if overridden
+            pending.is_transfer = final_is_transfer
+            pending.to_account_id = final_to_account_id
+            real_txn = TransferService.approve_transfer(db, pending, tenant_id)
+        else:
+            # We reuse create_transaction
+            real_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
         
         # Update Account Balance/Credit Limit if provided
         if pending.balance is not None or pending.credit_limit is not None:
@@ -367,7 +454,8 @@ class FinanceService:
         txns_query = db.query(models.Transaction).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_of_month,
-            models.Transaction.amount < 0 
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
         )
         if user_role == "CHILD":
              txns_query = txns_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
@@ -402,13 +490,14 @@ class FinanceService:
 
     # --- Rules ---
     def create_category_rule(db: Session, rule: schemas.CategoryRuleCreate, tenant_id: str) -> models.CategoryRule:
+        data = rule.model_dump()
+        if isinstance(data.get('keywords'), list):
+            data['keywords'] = json.dumps(data['keywords'])
+            
         db_rule = models.CategoryRule(
-            **rule.model_dump(),
+            **data,
             tenant_id=tenant_id
         )
-        # Serialize keywords list to string
-        if isinstance(rule.keywords, list):
-             db_rule.keywords = json.dumps(rule.keywords)
              
         db.add(db_rule)
         db.commit()
@@ -605,7 +694,8 @@ class FinanceService:
         ).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_of_month,
-            models.Transaction.amount < 0 # Only expenses
+            models.Transaction.amount < 0, # Only expenses
+            models.Transaction.is_transfer == False
         ).group_by(models.Transaction.category).all()
         
         spending_map = {row.category: abs(row.sum) for row in spending_rows if row.category}

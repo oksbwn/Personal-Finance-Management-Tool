@@ -335,6 +335,8 @@ class ImportItem(BaseModel):
     external_id: Optional[str] = None
     balance: Optional[float] = None
     credit_limit: Optional[float] = None
+    is_transfer: bool = False
+    to_account_id: Optional[str] = None
 
 class ImportPayload(BaseModel):
     account_id: str
@@ -397,6 +399,8 @@ class PendingTransactionRead(BaseModel):
     external_id: Optional[str] = None
     balance: Optional[float] = None
     credit_limit: Optional[float] = None
+    is_transfer: bool = False
+    to_account_id: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -409,14 +413,28 @@ def list_triage(
 ):
     return FinanceService.get_pending_transactions(db, str(current_user.tenant_id))
 
+class TriageApproveRequest(BaseModel):
+    category: Optional[str] = None
+    is_transfer: bool = False
+    to_account_id: Optional[str] = None
+    create_rule: bool = False
+
 @router.post("/triage/{pending_id}/approve")
 def approve_triage(
     pending_id: str,
-    category: Optional[str] = Body(None, embed=True),
+    payload: TriageApproveRequest,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    txn = FinanceService.approve_pending_transaction(db, pending_id, str(current_user.tenant_id), category)
+    txn = FinanceService.approve_pending_transaction(
+        db, 
+        pending_id, 
+        str(current_user.tenant_id), 
+        category_override=payload.category,
+        is_transfer_override=payload.is_transfer,
+        to_account_id_override=payload.to_account_id,
+        create_rule=payload.create_rule
+    )
     if not txn:
         raise HTTPException(status_code=404, detail="Pending transaction not found")
     return {"status": "approved", "transaction_id": txn.id}

@@ -55,8 +55,24 @@ class Transaction(Base):
     category = Column(String, nullable=True) # Keeping simple string for now, could be FK later
     tags = Column(String, nullable=True) # JSON Array string
     external_id = Column(String, nullable=True) # For de-duplication
+    is_transfer = Column(Boolean, default=False, nullable=False)
+    linked_transaction_id = Column(String, nullable=True) # ID of the other leg of a transfer
     source = Column(String, default="MANUAL", nullable=False) # MANUAL, CSV, EXCEL, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    linked_transaction = relationship("Transaction", 
+        remote_side=[id],
+        primaryjoin="Transaction.linked_transaction_id==Transaction.id",
+        foreign_keys=[linked_transaction_id],
+        uselist=False,
+        post_update=True
+    )
+
+    @property
+    def transfer_account_id(self):
+        if self.linked_transaction:
+            return self.linked_transaction.account_id
+        return None
 
     account = relationship("Account", back_populates="transactions",
                           primaryjoin="Transaction.account_id == Account.id",
@@ -74,6 +90,8 @@ class CategoryRule(Base):
     category = Column(String, nullable=False) # Target Category e.g. "Food"
     keywords = Column(String, nullable=False) # JSON List of strings e.g. '["Zomato", "Swiggy"]'
     priority = Column(Numeric(5,0), default=0) # Higher priority runs first
+    is_transfer = Column(Boolean, default=False, nullable=False)
+    to_account_id = Column(String, nullable=True) # Destination Account ID if it's a transfer rule
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Category(Base):

@@ -52,6 +52,8 @@ class PendingTransaction(Base):
     source = Column(String, nullable=False) # SMS, EMAIL
     raw_message = Column(String, nullable=True)
     external_id = Column(String, nullable=True) # Reference Number/UTR
+    is_transfer = Column(Boolean, default=False, nullable=False)
+    to_account_id = Column(String, nullable=True) # Destination Account ID for transfers
     balance = Column(Numeric(15, 2), nullable=True)
     credit_limit = Column(Numeric(15, 2), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

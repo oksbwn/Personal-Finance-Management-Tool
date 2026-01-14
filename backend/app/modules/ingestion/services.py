@@ -3,6 +3,7 @@ from sqlalchemy import func
 from typing import Optional
 from backend.app.modules.finance import models as finance_models
 from backend.app.modules.ingestion.base import ParsedTransaction
+from backend.app.modules.ingestion.transfer_detector import TransferDetector
 
 class IngestionService:
     @staticmethod
@@ -95,8 +96,18 @@ class IngestionService:
         
         print(f"[Ingestion] Proceeding with processing: {final_amount} to account {account.name}")
         
-        # 1. Try to auto-categorize
+        # 1. Try to detect internal transfer
+        all_accounts = db.query(finance_models.Account).filter(finance_models.Account.tenant_id == tenant_id).all()
+        all_rules = db.query(finance_models.CategoryRule).filter(finance_models.CategoryRule.tenant_id == tenant_id).all()
+        
+        is_transfer, to_account_id = TransferDetector.detect(parsed.description, parsed.recipient, all_accounts, all_rules)
+        
+        # 2. Try to auto-categorize
         category = FinanceService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
+        
+        # If it's a transfer, we force category to "Transfer" if it matches a transfer rule
+        if is_transfer:
+            category = "Transfer"
         
         is_auto_ingest = (category != "Uncategorized")
         
@@ -133,6 +144,8 @@ class IngestionService:
                 source=parsed.source,
                 raw_message=parsed.raw_message,
                 external_id=parsed.ref_id, # Store the ref_id for triage too!
+                is_transfer=is_transfer,
+                to_account_id=to_account_id,
                 balance=parsed.balance,
                 credit_limit=parsed.credit_limit
             )
