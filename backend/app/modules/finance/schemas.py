@@ -137,6 +137,7 @@ class RuleSuggestion(BaseModel):
 class CategoryBase(BaseModel):
     name: str
     icon: Optional[str] = "🏷️"
+    color: Optional[str] = "#3B82F6"
 
 class CategoryCreate(CategoryBase):
     pass
@@ -144,6 +145,7 @@ class CategoryCreate(CategoryBase):
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
     icon: Optional[str] = None
+    color: Optional[str] = None
 
 class CategoryRead(CategoryBase):
     id: str

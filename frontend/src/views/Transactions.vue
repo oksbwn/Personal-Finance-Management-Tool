@@ -379,7 +379,14 @@ const analyticsData = computed(() => {
 
     const sortedCategories = Object.entries(catMap)
         .sort((a, b) => b[1] - a[1])
-        .map(([name, value]) => ({ name, value }))
+        .map(([name, value]) => {
+            const cat = categories.value.find(c => c.name === name)
+            return { 
+                name, 
+                value,
+                color: cat ? (cat.color || '#3B82F6') : '#9ca3af'
+            }
+        })
 
     const sortedMerchants = Object.entries(merchantMap)
         .sort((a, b) => b[1] - a[1])
@@ -516,13 +523,13 @@ function formatTypeLabel(type: string) {
 
 
 function getCategoryDisplay(name: string) {
-    if (!name || name === 'Uncategorized') return { icon: '🏷️', text: 'Uncategorized' }
+    if (!name || name === 'Uncategorized') return { icon: '🏷️', text: 'Uncategorized', color: '#9ca3af' }
     const cat = categories.value.find(c => c.name === name)
     if (cat && cat.icon) {
-        return { icon: cat.icon, text: cat.name }
+        return { icon: cat.icon, text: cat.name, color: cat.color || '#3B82F6' }
     }
     // Fallback for categories without icon
-    return { icon: '🏷️', text: name }
+    return { icon: '🏷️', text: name, color: '#9ca3af' }
 }
 
 
@@ -803,7 +810,7 @@ onMounted(() => {
                                         <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
                                         <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
                              <span v-if="txn.is_transfer" class="ai-badge-mini" style="background: #ecfdf5; color: #059669; border-color: #059669;" title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
-                                        <span class="category-pill">
+                                        <span class="category-pill" :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
@@ -900,8 +907,7 @@ onMounted(() => {
                                 </div>
                                 <div class="progress-bar-bg">
                                     <div 
-                                        class="progress-bar-fill" 
-                                        :style="{ width: `${(cat.value / analyticsData.expense * 100) || 0}%` }"
+                                        :style="{ width: `${(cat.value / analyticsData.expense * 100) || 0}%`, backgroundColor: cat.color }"
                                     ></div>
                                 </div>
                             </div>

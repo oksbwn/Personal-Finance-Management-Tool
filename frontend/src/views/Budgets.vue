@@ -50,10 +50,10 @@ const categoryOptions = computed(() => {
 })
 
 function getCategoryDisplay(name: string) {
-    if (name === 'OVERALL') return '🏁 Overall Monthly Limit'
-    if (!name) return '📝 General'
+    if (name === 'OVERALL') return { icon: '🏁', text: 'Overall Monthly Limit', color: '#10b981' }
+    if (!name) return { icon: '📝', text: 'General', color: '#9ca3af' }
     const cat = categories.value.find(c => c.name === name)
-    return cat ? `${cat.icon || '🏷️'} ${cat.name}` : `🏷️ ${name}`
+    return cat ? { icon: cat.icon || '🏷️', text: cat.name, color: cat.color || '#3B82F6' } : { icon: '🏷️', text: name, color: '#9ca3af' }
 }
 
 async function fetchData() {
@@ -226,10 +226,10 @@ onMounted(() => {
 
                     <h2 class="section-title">Category Limits</h2>
                     <div class="budget-grid">
-                        <div v-for="b in categoryBudgets" :key="b.id" class="glass-card budget-card">
+                        <div v-for="b in categoryBudgets" :key="b.id" class="glass-card budget-card" :style="{ borderLeft: `4px solid ${getCategoryDisplay(b.category).color}` }">
                             <div class="card-top">
                                 <div class="card-main">
-                                    <span class="card-name">{{ getCategoryDisplay(b.category) }}</span>
+                                    <span class="card-name">{{ getCategoryDisplay(b.category).text }}</span>
                                 </div>
                                 <div class="card-actions">
                                     <button @click="editBudget(b)" class="btn-icon-circle-sm">✏️</button>
@@ -244,10 +244,9 @@ onMounted(() => {
                                 </div>
                                 <div class="progress-bar-bg-sm">
                                     <div class="progress-bar-fill-sm" 
-                                        :style="{ width: Math.min(b.percentage, 100) + '%' }"
-                                        :class="{ 
-                                            'warning': b.percentage > 80 && b.percentage <= 100,
-                                            'danger': b.percentage > 100 
+                                        :style="{ 
+                                            width: Math.min(b.percentage, 100) + '%',
+                                            backgroundColor: b.percentage > 100 ? '#ef4444' : (b.percentage > 80 ? '#f59e0b' : getCategoryDisplay(b.category).color)
                                         }"
                                     ></div>
                                 </div>
@@ -295,11 +294,16 @@ onMounted(() => {
                             <div class="burner-list">
                                 <div v-for="b in [...categoryBudgets].sort((x,y) => y.percentage - x.percentage).slice(0,4)" :key="b.id" class="burner-item">
                                     <div class="burner-info">
-                                        <span class="burner-label">{{ getCategoryDisplay(b.category) }}</span>
+                                        <span class="burner-label">{{ getCategoryDisplay(b.category).text }}</span>
                                         <span class="burner-val" :class="{ 'danger': b.percentage > 100 }">{{ b.percentage?.toFixed(0) }}%</span>
                                     </div>
                                     <div class="burner-bar-bg">
-                                        <div class="burner-bar-fill" :style="{ width: Math.min(b.percentage, 100) + '%' }" :class="{ 'danger': b.percentage > 100 }"></div>
+                                        <div class="burner-bar-fill" 
+                                            :style="{ 
+                                                width: Math.min(b.percentage, 100) + '%', 
+                                                backgroundColor: b.percentage > 100 ? '#ef4444' : getCategoryDisplay(b.category).color 
+                                            }"
+                                        ></div>
                                     </div>
                                 </div>
                             </div>

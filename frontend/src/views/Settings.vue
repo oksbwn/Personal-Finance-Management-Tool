@@ -241,7 +241,7 @@ async function testAi() {
         aiTesting.value = false
     }
 }
-const newCategory = ref({ name: '', icon: '🏷️' })
+const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6' })
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -630,14 +630,14 @@ async function saveRule() {
 function openAddCategoryModal() {
     isEditingCategory.value = false
     editingCategoryId.value = null
-    newCategory.value = { name: '', icon: '🏷️' }
+    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6' }
     showCategoryModal.value = true
 }
 
 function openEditCategoryModal(cat: any) {
     isEditingCategory.value = true
     editingCategoryId.value = cat.id
-    newCategory.value = { name: cat.name, icon: cat.icon }
+    newCategory.value = { name: cat.name, icon: cat.icon, color: cat.color || '#3B82F6' }
     showCategoryModal.value = true
 }
 
@@ -1169,7 +1169,7 @@ async function handleMemberSubmit() {
             <!-- CATEGORIES TAB -->
             <div v-if="activeTab === 'categories'" class="tab-content animate-in">
                 <div class="settings-grid">
-                    <div v-for="cat in categories" :key="cat.id" class="glass-card category">
+                    <div v-for="cat in categories" :key="cat.id" class="glass-card category" :style="{ borderLeft: `4px solid ${cat.color || '#e5e7eb'}` }">
                         <div class="cat-body">
                             <span class="cat-icon-large">{{ cat.icon }}</span>
                             <h3 class="card-name">{{ cat.name }}</h3>
@@ -1547,8 +1547,11 @@ async function handleMemberSubmit() {
                 
                 <form @submit.prevent="saveCategory" class="form-compact">
                      <div class="form-group">
-                        <label class="form-label">Icon (Emoji)</label>
-                        <input v-model="newCategory.icon" class="form-input emoji-input" required />
+                        <label class="form-label">Icon (Emoji) & Color</label>
+                        <div style="display: flex; gap: 1rem;">
+                            <input v-model="newCategory.icon" class="form-input emoji-input" required placeholder="🏷️" />
+                            <input type="color" v-model="newCategory.color" class="form-input" style="height: 3rem; padding: 0.2rem; width: 100%; cursor: pointer;" />
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Category Name</label>

@@ -101,6 +101,7 @@ class Category(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     name = Column(String, nullable=False)
     icon = Column(String, nullable=True) # Emoji or icon code
+    color = Column(String, default="#3B82F6") # Hex color code
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Budget(Base):

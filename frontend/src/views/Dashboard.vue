@@ -48,21 +48,29 @@ function formatDate(dateStr: string) {
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
-function getCategoryIcon(catName: string): string {
-    // We could fetch categories map, but for now simple heuristic or default
-    return '🏷️' 
-}
+    const categories = ref<any[]>([])
 
-onMounted(async () => {
-    try {
-        const res = await financeApi.getMetrics()
-        metrics.value = res.data
-    } catch (e) {
-        console.error("Failed to load metrics", e)
-    } finally {
-        loading.value = false
+    // Helper to get category details including color
+    function getCategoryDetails(name: string) {
+        if (!name || name === 'Uncategorized') return { icon: '🏷️', color: '#f3f4f6' }
+        const cat = categories.value.find(c => c.name === name)
+        return cat ? { icon: cat.icon || '🏷️', color: cat.color || '#3B82F6' } : { icon: '🏷️', color: '#f3f4f6' }
     }
-})
+
+    onMounted(async () => {
+        try {
+            const [res, catRes] = await Promise.all([
+                financeApi.getMetrics(),
+                financeApi.getCategories()
+            ])
+            metrics.value = res.data
+            categories.value = catRes.data
+        } catch (e) {
+            console.error("Failed to load metrics", e)
+        } finally {
+            loading.value = false
+        }
+    })
 </script>
 
 <template>
@@ -181,7 +189,9 @@ onMounted(async () => {
                 <div v-else class="recent-list">
                     <div v-for="txn in metrics.recent_transactions" :key="txn.id" class="recent-item">
                         <div class="recent-left">
-                            <div class="cat-circle">{{ getCategoryIcon(txn.category) }}</div>
+                            <div class="cat-circle" :style="{ backgroundColor: getCategoryDetails(txn.category).color + '20', color: getCategoryDetails(txn.category).color }">
+                                {{ getCategoryDetails(txn.category).icon }}
+                            </div>
                             <div class="recent-meta">
                                 <span class="recent-desc">{{ txn.description || 'Unknown' }}</span>
                                 <span class="recent-date">{{ formatDate(txn.date) }}</span>
