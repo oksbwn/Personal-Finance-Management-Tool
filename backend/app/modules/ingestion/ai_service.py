@@ -105,7 +105,7 @@ class AIService:
         prompts = json.loads(config.prompts_json or "{}")
         default_prompt = (
             "Extract transaction details from the following message. "
-            "Return JSON with: amount (number), date (DD/MM/YYYY), recipient (string), account_mask (4 digits), ref_id (string or null), type (DEBIT/CREDIT)."
+            "Return JSON with: amount (number), date (DD/MM/YYYY), recipient (string), account_mask (4 digits), ref_id (string or null), type (DEBIT/CREDIT), balance (number or null), credit_limit (number or null)."
         )
         prompt = prompts.get(task, default_prompt)
 
@@ -151,6 +151,8 @@ class AIService:
             type=data.get("type", "DEBIT").upper(),
             account_mask=str(data.get("account_mask", "XXXX"))[-4:],
             recipient=data.get("recipient"),
+            balance=Decimal(str(data.get("balance"))) if data.get("balance") is not None else None,
+            credit_limit=Decimal(str(data.get("credit_limit"))) if data.get("credit_limit") is not None else None,
             ref_id=data.get("ref_id"),
             raw_message=raw_message,
             source="AI_LLM", # Or pass original source

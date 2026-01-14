@@ -333,6 +333,8 @@ class ImportItem(BaseModel):
     amount: float
     type: str # DEBIT/CREDIT
     external_id: Optional[str] = None
+    balance: Optional[float] = None
+    credit_limit: Optional[float] = None
 
 class ImportPayload(BaseModel):
     account_id: str
@@ -393,6 +395,8 @@ class PendingTransactionRead(BaseModel):
     source: str
     raw_message: Optional[str] = None
     external_id: Optional[str] = None
+    balance: Optional[float] = None
+    credit_limit: Optional[float] = None
     created_at: datetime
 
     class Config:

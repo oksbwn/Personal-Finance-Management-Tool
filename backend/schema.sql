@@ -131,6 +131,8 @@ CREATE TABLE pending_transactions (
 	source VARCHAR NOT NULL, 
 	raw_message VARCHAR, 
 	external_id VARCHAR, 
+	balance NUMERIC(15, 2),
+	credit_limit NUMERIC(15, 2),
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)

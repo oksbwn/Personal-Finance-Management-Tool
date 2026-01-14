@@ -24,6 +24,8 @@ const mapping = ref({
     date: 'Date',
     description: 'Description',
     reference: '', // Optional
+    balance: '', // Optional
+    credit_limit: '', // Optional
     amount: 'Amount',
     mode: 'single' as 'single' | 'split'
 }) 
@@ -125,7 +127,9 @@ async function parseFile() {
         const mapPayload: any = {
             date: mapping.value.date,
             description: mapping.value.description,
-            reference: mapping.value.reference
+            reference: mapping.value.reference,
+            balance: mapping.value.balance,
+            credit_limit: mapping.value.credit_limit
         }
         
         if (mapping.value.mode === 'single') {
@@ -183,6 +187,8 @@ async function importSelected() {
                 date: mapping.value.date,
                 description: mapping.value.description,
                 reference: mapping.value.reference,
+                balance: mapping.value.balance,
+                credit_limit: mapping.value.credit_limit,
                 amount: mapping.value.amount,
                 mode: mapping.value.mode
             },
@@ -348,17 +354,55 @@ function close() {
                                         <!-- Reference -->
                                         <div class="mapping-row">
                                             <div class="field-label">
-                                                <span class="field-icon">🔖</span>
+                                                <span class="field-icon">🆔</span>
                                                 <div class="text">
-                                                    <span class="name">Reference ID</span>
-                                                    <span class="badge-optional">Optional</span>
+                                                    <span class="name">Reference</span>
+                                                    <span class="desc">Reference / UTR / Txn #</span>
                                                 </div>
                                             </div>
                                             <div class="connector">→</div>
                                             <div class="field-input">
-                                                <input v-if="csvHeaders.length === 0" v-model="mapping.reference" class="form-input" placeholder="Column Name" />
+                                                <input v-if="csvHeaders.length === 0" v-model="mapping.reference" class="form-input" placeholder="Column Name (e.g. Ref No)" />
                                                 <select v-else v-model="mapping.reference" class="form-select">
-                                                    <option value="">(None)</option>
+                                                    <option value="">-- No Reference --</option>
+                                                    <option v-for="h in csvHeaders" :key="h" :value="h">{{ h }}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <!-- Balance -->
+                                        <div class="mapping-row">
+                                            <div class="field-label">
+                                                <span class="field-icon">💰</span>
+                                                <div class="text">
+                                                    <span class="name">Balance</span>
+                                                    <span class="desc">Available balance after txn</span>
+                                                </div>
+                                            </div>
+                                            <div class="connector">→</div>
+                                            <div class="field-input">
+                                                <input v-if="csvHeaders.length === 0" v-model="mapping.balance" class="form-input" placeholder="Column Name (e.g. Balance)" />
+                                                <select v-else v-model="mapping.balance" class="form-select">
+                                                    <option value="">-- No Balance --</option>
+                                                    <option v-for="h in csvHeaders" :key="h" :value="h">{{ h }}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <!-- Credit Limit -->
+                                        <div class="mapping-row">
+                                            <div class="field-label">
+                                                <span class="field-icon">💳</span>
+                                                <div class="text">
+                                                    <span class="name">Credit Limit</span>
+                                                    <span class="desc">New credit limit if updated</span>
+                                                </div>
+                                            </div>
+                                            <div class="connector">→</div>
+                                            <div class="field-input">
+                                                <input v-if="csvHeaders.length === 0" v-model="mapping.credit_limit" class="form-input" placeholder="Column Name (e.g. Limit)" />
+                                                <select v-else v-model="mapping.credit_limit" class="form-select">
+                                                    <option value="">-- No Limit --</option>
                                                     <option v-for="h in csvHeaders" :key="h" :value="h">{{ h }}</option>
                                                 </select>
                                             </div>

@@ -132,7 +132,9 @@ class IngestionService:
                 category="Uncategorized",
                 source=parsed.source,
                 raw_message=parsed.raw_message,
-                external_id=parsed.ref_id # Store the ref_id for triage too!
+                external_id=parsed.ref_id, # Store the ref_id for triage too!
+                balance=parsed.balance,
+                credit_limit=parsed.credit_limit
             )
             db.add(pending)
             db.commit()

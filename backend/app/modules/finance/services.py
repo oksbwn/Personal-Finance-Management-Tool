@@ -284,6 +284,15 @@ class FinanceService:
         # We reuse create_transaction
         real_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
         
+        # Update Account Balance/Credit Limit if provided
+        if pending.balance is not None or pending.credit_limit is not None:
+            account = db.query(models.Account).filter(models.Account.id == pending.account_id).first()
+            if account:
+                if pending.balance is not None:
+                    account.balance = pending.balance
+                if pending.credit_limit is not None:
+                    account.credit_limit = pending.credit_limit
+
         # Delete pending
         db.delete(pending)
         db.commit()

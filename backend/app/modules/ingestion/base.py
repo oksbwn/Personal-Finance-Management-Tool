@@ -13,6 +13,8 @@ class ParsedTransaction(BaseModel):
     recipient: Optional[str] = None
     category: Optional[str] = None
     ref_id: Optional[str] = None
+    balance: Optional[Decimal] = None
+    credit_limit: Optional[Decimal] = None
     raw_message: str
     source: str = "SMS" # SMS, EMAIL, etc.
     is_ai_parsed: bool = False # Flag to indicate if AI was used

@@ -25,6 +25,9 @@ class HdfcSmsParser(BaseSmsParser):
         re.IGNORECASE
     )
 
+    BAL_PATTERN = re.compile(r"(?i)(?:Avbl\s*Bal|Bal|Balance)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
+    LIMIT_PATTERN = re.compile(r"(?i)(?:Credit\s*Limit|Limit)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
+
     def can_handle(self, sender: str, message: str) -> bool:
         return "hdfc" in sender.lower() or "hdfc" in message.lower()
 
@@ -85,9 +88,23 @@ class HdfcSmsParser(BaseSmsParser):
             account_mask=account_mask,
             recipient=clean_recipient,
             ref_id=ref_id,
+            balance=self._find_balance(raw),
+            credit_limit=self._find_limit(raw),
             raw_message=raw,
             source="SMS"
         )
+
+    def _find_balance(self, content: str) -> Optional[Decimal]:
+        match = self.BAL_PATTERN.search(content)
+        if match:
+            return Decimal(match.group(1).replace(",", ""))
+        return None
+
+    def _find_limit(self, content: str) -> Optional[Decimal]:
+        match = self.LIMIT_PATTERN.search(content)
+        if match:
+            return Decimal(match.group(1).replace(",", ""))
+        return None
 
 class HdfcEmailParser(BaseEmailParser):
     """
@@ -120,6 +137,9 @@ class HdfcEmailParser(BaseEmailParser):
         r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)[:\.\s-]+(\w+)", 
         re.IGNORECASE
     )
+
+    BAL_PATTERN = re.compile(r"(?i)(?:Avbl\s*Bal|Bal|Balance)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
+    LIMIT_PATTERN = re.compile(r"(?i)(?:Credit\s*Limit|Limit)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
 
     def can_handle(self, subject: str, body: str) -> bool:
         combined = (subject + " " + body).lower()
@@ -193,6 +213,20 @@ class HdfcEmailParser(BaseEmailParser):
             account_mask=account_mask,
             recipient=clean_recipient,
             ref_id=ref_id,
+            balance=self._find_balance(raw),
+            credit_limit=self._find_limit(raw),
             raw_message=raw,
             source="EMAIL"
         )
+
+    def _find_balance(self, content: str) -> Optional[Decimal]:
+        match = self.BAL_PATTERN.search(content)
+        if match:
+            return Decimal(match.group(1).replace(",", ""))
+        return None
+
+    def _find_limit(self, content: str) -> Optional[Decimal]:
+        match = self.LIMIT_PATTERN.search(content)
+        if match:
+            return Decimal(match.group(1).replace(",", ""))
+        return None

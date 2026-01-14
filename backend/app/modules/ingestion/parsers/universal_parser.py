@@ -25,7 +25,7 @@ class UniversalParser:
             # Heuristic: Count intersections with keywords
             keywords = {'date', 'txn', 'transaction', 'valuedate', 'description', 
                         'desc', 'particulars', 'narration', 'remark', 'amount', 
-                        'debit', 'credit', 'dr', 'cr', 'balance', 'bal', 'ref'}
+                        'debit', 'credit', 'dr', 'cr', 'balance', 'bal', 'limit', 'ref'}
             
             best_idx = 0
             max_score = 0
@@ -190,6 +190,17 @@ class UniversalParser:
                         if raw_ref and str(raw_ref).strip():
                              external_id = str(raw_ref).strip()
                     
+                    # 6. Balance & Credit Limit
+                    balance_val = None
+                    bal_col = mapping.get('balance') or mapping.get('bal')
+                    if bal_col:
+                        balance_val = UniversalParser._parse_amount(get_val(row, bal_col))
+                    
+                    limit_val = None
+                    limit_col = mapping.get('credit_limit') or mapping.get('limit')
+                    if limit_col:
+                        limit_val = UniversalParser._parse_amount(get_val(row, limit_col))
+                    
                     # Store as simple dict for JSON response
                     parsed_rows.append({
                         "date": date_obj.isoformat(),
@@ -198,6 +209,8 @@ class UniversalParser:
                         "amount": amount,
                         "type": txn_type,
                         "external_id": external_id,
+                        "balance": balance_val,
+                        "credit_limit": limit_val,
                         "original_row": {str(k): str(v) for k, v in row.to_dict().items()} # Serialize
                     })
 

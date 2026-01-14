@@ -506,11 +506,6 @@ function getCategoryDisplay(name: string) {
     return { icon: '🏷️', text: name }
 }
 
-function getSourceIcon(source: string) {
-    if (source === 'CSV' || source === 'EXCEL') return '📁'
-    if (source === 'SMS') return '💬'
-    return '📝'
-}
 
 function openAddModal() {
     isEditing.value = false
@@ -613,67 +608,6 @@ async function handleSmartCategorize() {
     }
 }
 
-function extractTransactionInfo(description: string) {
-    if (!description) return { primary: 'Unknown', secondary: null }
-    
-    // Common patterns
-    const upiPattern = /UPI\/(.*?)\/(.+?)(?:\/|$)/i
-    const impsPattern = /IMPS\/(.*?)\/(.+?)(?:\/|$)/i
-    const neftPattern = /NEFT\/(.*?)\/(.+?)(?:\/|$)/i
-    const atmPattern = /ATM\s+(WDL|CASH)\s*-?\s*(.+?)(?:\s|$)/i
-    const posPattern = /POS\s+(.+?)(?:\s|$)/i
-    
-    // Try UPI
-    let match = description.match(upiPattern)
-    if (match) {
-        return { 
-            primary: match[2].trim().substring(0, 25), 
-            secondary: 'UPI'
-        }
-    }
-    
-    // Try IMPS
-    match = description.match(impsPattern)
-    if (match) {
-        return { 
-            primary: match[2].trim().substring(0, 25), 
-            secondary: 'IMPS'
-        }
-    }
-    
-    // Try NEFT
-    match = description.match(neftPattern)
-    if (match) {
-        return { 
-            primary: match[2].trim().substring(0, 25), 
-            secondary: 'NEFT'
-        }
-    }
-    
-    // Try ATM
-    match = description.match(atmPattern)
-    if (match) {
-        return { 
-            primary: match[2].trim().substring(0, 25), 
-            secondary: 'ATM'
-        }
-    }
-    
-    // Try POS
-    match = description.match(posPattern)
-    if (match) {
-        return { 
-            primary: match[1].trim().substring(0, 25), 
-            secondary: 'POS'
-        }
-    }
-    
-    // Fallback: just truncate
-    return { 
-        primary: description.substring(0, 30) + (description.length > 30 ? '...' : ''), 
-        secondary: null 
-    }
-}
 
 function switchTab(tab: 'list' | 'analytics' | 'triage') {
     activeTab.value = tab
@@ -1115,6 +1049,8 @@ onMounted(() => {
                                     <span class="meta-item">📍 {{ getAccountName(txn.account_id) }}</span>
                                     <span class="meta-item" v-if="txn.description">📝 {{ txn.description }}</span>
                                     <span class="ref-id-pill small" v-if="txn.external_id">🆔 {{ txn.external_id }}</span>
+                                    <span class="ref-id-pill small" v-if="txn.balance">💰 Bal: ₹{{ txn.balance.toFixed(2) }}</span>
+                                    <span class="ref-id-pill small" v-if="txn.credit_limit">💳 Limit: ₹{{ txn.credit_limit.toFixed(2) }}</span>
                                 </div>
                                 <div v-if="txn.raw_message" class="raw-message-preview" :title="txn.raw_message">
                                     Raw: {{ txn.raw_message.substring(0, 60) }}...

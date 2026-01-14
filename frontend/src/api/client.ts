@@ -52,7 +52,7 @@ export interface AccountUpdate {
     type?: string;
     currency?: string;
     account_mask?: string;
-
+    import_config?: string;
 }
 
 export interface TransactionUpdate {
