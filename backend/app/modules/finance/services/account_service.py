@@ -1,0 +1,75 @@
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from backend.app.modules.finance import models, schemas
+
+class AccountService:
+    @staticmethod
+    def create_account(db: Session, account: schemas.AccountCreate, tenant_id: str) -> models.Account:
+        data = account.model_dump()
+        if not data.get('tenant_id'):
+            data['tenant_id'] = tenant_id
+            
+        db_account = models.Account(**data)
+        if hasattr(db_account, 'owner_id') and db_account.owner_id:
+             db_account.owner_id = str(db_account.owner_id) # Ensure string
+
+        db.add(db_account)
+        db.commit()
+        db.refresh(db_account)
+        return db_account
+
+    @staticmethod
+    def get_accounts(db: Session, tenant_id: str, owner_id: Optional[str] = None, user_role: str = "ADULT") -> List[models.Account]:
+        query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if owner_id:
+            query = query.filter((models.Account.owner_id == owner_id) | (models.Account.owner_id == None))
+        
+        # Role-based restriction: Kids can't see Investments or Credit Cards
+        if user_role == "CHILD":
+            query = query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+            
+        return query.all()
+
+    @staticmethod
+    def update_account(db: Session, account_id: str, account_update: schemas.AccountUpdate, tenant_id: str) -> Optional[models.Account]:
+        db_account = db.query(models.Account).filter(
+            models.Account.id == account_id,
+            models.Account.tenant_id == tenant_id
+        ).first()
+        
+        if not db_account:
+            return None
+            
+        update_data = account_update.model_dump(exclude_unset=True)
+        if not update_data:
+            return db_account
+        
+        # Apply updates
+        for key, value in update_data.items():
+            if key in ['tenant_id', 'owner_id'] and value:
+                value = str(value)
+            setattr(db_account, key, value)
+        
+        try:
+            db.commit()
+            db.refresh(db_account)
+            return db_account
+        except Exception as e:
+            db.rollback()
+            # DuckDB limitation: Cannot update accounts that have transactions
+            print(f"Account update error (likely DuckDB FK limitation): {e}")
+            raise
+
+    @staticmethod
+    def delete_account(db: Session, account_id: str, tenant_id: str) -> bool:
+        db_account = db.query(models.Account).filter(
+            models.Account.id == account_id,
+            models.Account.tenant_id == tenant_id
+        ).first()
+        
+        if not db_account:
+            return False
+            
+        db.delete(db_account)
+        db.commit()
+        return True

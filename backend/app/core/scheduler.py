@@ -1,0 +1,61 @@
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.orm import Session
+from backend.app.core.database import SessionLocal
+from backend.app.modules.finance import models
+from backend.app.modules.finance.services.recurring_service import RecurringService
+import logging
+
+logger = logging.getLogger(__name__)
+
+scheduler = BackgroundScheduler()
+
+def daily_recurrence_check():
+    """
+    Job to check and process recurring transactions for all tenants.
+    """
+    logger.info("Starting daily recurrence check...")
+    db: Session = SessionLocal()
+    try:
+        # Find tenants who have active recurring transactions due
+        # We use a raw distinct query or ORM distinct
+        from datetime import datetime
+        
+        # optimized: Get distinct tenant_ids that have due items
+        due_tenants = db.query(models.RecurringTransaction.tenant_id).filter(
+            models.RecurringTransaction.is_active == True,
+            models.RecurringTransaction.next_run_date <= datetime.utcnow()
+        ).distinct().all()
+        
+        tenant_ids = [t[0] for t in due_tenants]
+        
+        total_processed = 0
+        for tid in tenant_ids:
+            try:
+                count = RecurringService.process_recurring_transactions(db, tid)
+                total_processed += count
+                logger.info(f"Processed {count} recurring transactions for tenant {tid}")
+            except Exception as e:
+                logger.error(f"Error processing recurrence for tenant {tid}: {e}")
+                
+        logger.info(f"Daily recurrence check completed. Total generated: {total_processed}")
+        
+    except Exception as e:
+        logger.error(f"Critical error in daily_recurrence_check: {e}")
+    finally:
+        db.close()
+
+def start_scheduler():
+    # Run daily at 00:01 UTC (or server time)
+    trigger = CronTrigger(hour=0, minute=1)
+    
+    # Also support a faster interval for debug/demo?
+    # For now, stick to daily.
+    
+    scheduler.add_job(daily_recurrence_check, trigger, id="daily_recurrence_check", replace_existing=True)
+    scheduler.start()
+    logger.info("APScheduler started.")
+
+def stop_scheduler():
+    scheduler.shutdown()
+    logger.info("APScheduler shut down.")
