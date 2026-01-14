@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean, Numeric
+from sqlalchemy.orm import relationship, foreign, remote
 from backend.app.core.database import Base
 
 class EmailConfiguration(Base):
@@ -35,7 +36,14 @@ class PendingTransaction(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    account_id = Column(String, ForeignKey("accounts.id"), nullable=False)
+    account_id = Column(String, nullable=False)  # No FK for DuckDB compliance
+    
+    # Relationships
+    account = relationship("Account", 
+                          primaryjoin="PendingTransaction.account_id == foreign(remote(Account.id))",
+                          viewonly=True,
+                          sync_backref=False,
+                          overlaps="account")
     amount = Column(Numeric(15, 2), nullable=False)
     date = Column(DateTime, nullable=False)
     description = Column(String, nullable=True)

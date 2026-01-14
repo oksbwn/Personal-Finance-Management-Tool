@@ -23,14 +23,17 @@ class Account(Base):
     type = Column(SqlEnum(AccountType), nullable=False)
     currency = Column(String, default="INR", nullable=False)
     account_mask = Column(String, nullable=True) # e.g. "XX1234" used for SMS matching
-    owner_name = Column(String, nullable=True) # Display name of owner (e.g. "Dad")
     balance = Column(Numeric(15, 2), default=0.0) # Current Balance or Consumed Limit
     credit_limit = Column(Numeric(15, 2), nullable=True) # For Credit Cards
     is_verified = Column(Boolean, default=True, nullable=False) # False = Auto-detected from SMS
     import_config = Column(String, nullable=True) # JSON config for CSV/Excel mapping
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan",
+                               primaryjoin="Account.id == Transaction.account_id",
+                               foreign_keys="Transaction.account_id",
+                               viewonly=True,
+                               sync_backref=False)
 
 
 
@@ -43,7 +46,7 @@ class Transaction(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    account_id = Column(String, ForeignKey("accounts.id"), nullable=False)
+    account_id = Column(String, nullable=False)  # No FK to avoid DuckDB constraint
     type = Column(SqlEnum(TransactionType), default=TransactionType.DEBIT, nullable=False)
     amount = Column(Numeric(15, 2), nullable=False) # Precision for currency
     date = Column(DateTime, nullable=False)
@@ -55,7 +58,11 @@ class Transaction(Base):
     source = Column(String, default="MANUAL", nullable=False) # MANUAL, CSV, EXCEL, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    account = relationship("Account", back_populates="transactions")
+    account = relationship("Account", back_populates="transactions",
+                          primaryjoin="Transaction.account_id == Account.id",
+                          foreign_keys="Transaction.account_id",
+                          viewonly=True,
+                          sync_backref=False)
 
 
 class CategoryRule(Base):
