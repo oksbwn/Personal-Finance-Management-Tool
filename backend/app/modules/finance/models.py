@@ -113,3 +113,29 @@ class Budget(Base):
     amount_limit = Column(Numeric(15, 2), nullable=False) # Monthly Limit
     period = Column(String, default="MONTHLY") # For future extensibility
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Frequency(str, enum.Enum):
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+
+class RecurringTransaction(Base):
+    __tablename__ = "recurring_transactions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False) # e.g. "Netflix Subscription"
+    amount = Column(Numeric(15, 2), nullable=False)
+    type = Column(SqlEnum(TransactionType), default=TransactionType.DEBIT, nullable=False)
+    category = Column(String, nullable=True)
+    account_id = Column(String, nullable=False)
+    
+    frequency = Column(SqlEnum(Frequency), default=Frequency.MONTHLY, nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    next_run_date = Column(DateTime, nullable=False)
+    
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_run_date = Column(DateTime, nullable=True) # To track when it last ran
+    created_at = Column(DateTime, default=datetime.utcnow)

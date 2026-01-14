@@ -1,0 +1,36 @@
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from backend.app.core.database import get_db
+from backend.app.modules.auth import models as auth_models
+from backend.app.modules.auth.dependencies import get_current_user
+from backend.app.modules.finance import schemas
+from backend.app.modules.finance.services.budget_service import BudgetService
+
+router = APIRouter()
+
+@router.get("/budgets", response_model=List[schemas.BudgetProgress])
+def get_budgets(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return BudgetService.get_budgets(db, str(current_user.tenant_id))
+
+@router.post("/budgets", response_model=schemas.BudgetRead)
+def set_budget(
+    budget: schemas.BudgetCreate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return BudgetService.set_budget(db, budget, str(current_user.tenant_id))
+
+@router.delete("/budgets/{budget_id}")
+def delete_budget(
+    budget_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    success = BudgetService.delete_budget(db, budget_id, str(current_user.tenant_id))
+    if not success:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return {"status": "success"}

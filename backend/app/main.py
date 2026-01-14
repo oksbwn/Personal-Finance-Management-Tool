@@ -1,8 +1,23 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy import text
+import asyncio
+
 from backend.app.core.config import settings
 from backend.app.core.exceptions import http_exception_handler, generic_exception_handler
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from backend.app.core.database import engine, Base, SessionLocal
+
+# Routers
+from backend.app.modules.auth.router import router as auth_router
+from backend.app.modules.finance.routers import router as finance_router
+from backend.app.modules.ingestion.router import router as ingestion_router
+from backend.app.modules.ingestion.ai_router import router as ai_router
+
+# Background Tasks
+from backend.app.modules.ingestion.email_sync import EmailSyncService
+from backend.app.modules.ingestion import models as ingestion_models
+from backend.app.core.scheduler import start_scheduler, stop_scheduler
 
 def create_application() -> FastAPI:
     application = FastAPI(
@@ -24,22 +39,15 @@ def create_application() -> FastAPI:
     application.add_exception_handler(Exception, generic_exception_handler)
 
     # Routers
-    from backend.app.modules.auth.router import router as auth_router
-    from backend.app.modules.finance.router import router as finance_router
-    from backend.app.modules.ingestion.router import router as ingestion_router
-    from backend.app.modules.ingestion.ai_router import router as ai_router
-    
     application.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
     application.include_router(finance_router, prefix=f"{settings.API_V1_STR}/finance", tags=["finance"])
     application.include_router(ingestion_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ingestion"])
     application.include_router(ai_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ai"])
     
     # DB Creation (Dev only)
-    from backend.app.core.database import engine, Base
     Base.metadata.create_all(bind=engine)
 
     # --- Schema Migrations (Manual) ---
-    from sqlalchemy import text
     with engine.connect() as conn:
         try:
             # Check if column exists in accounts table
@@ -54,14 +62,12 @@ def create_application() -> FastAPI:
             print(f"[Migration] Error checking/adding columns: {e}")
 
     # --- Background Tasks ---
-    import asyncio
-    from backend.app.modules.ingestion.email_sync import EmailSyncService
-    from backend.app.modules.ingestion import models as ingestion_models
-    from backend.app.modules.ingestion.services import IngestionService # Indirectly needed
-    from backend.app.core.database import SessionLocal
     
     @application.on_event("startup")
     async def schedule_auto_sync():
+        # Start Scheduler
+        start_scheduler()
+        
         async def run_auto_sync():
             while True:
                 print("[AutoSync] Checking for scheduled syncs...")
@@ -96,6 +102,10 @@ def create_application() -> FastAPI:
                 await asyncio.sleep(900)
 
         asyncio.create_task(run_auto_sync())
+
+    @application.on_event("shutdown")
+    async def stop_scheduler_event():
+        stop_scheduler()
 
     return application
 

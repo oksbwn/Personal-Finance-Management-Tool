@@ -79,7 +79,7 @@ class Transaction(TransactionBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class TransactionRead(TransactionBase):
     id: UUID
@@ -153,8 +153,6 @@ class CategoryRead(CategoryBase):
     
     class Config:
         from_attributes = True
-    class Config:
-        from_attributes = True
 
 class BudgetBase(BaseModel):
     category: str
@@ -185,3 +183,42 @@ class SmartCategorizeRequest(BaseModel):
     category: str
     create_rule: bool = False
     apply_to_similar: bool = False
+
+class Frequency(str): 
+    # Helper for frontend types, though we validated via Enum in models
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+
+class RecurringTransactionBase(BaseModel):
+    name: str
+    amount: Decimal
+    account_id: UUID
+    category: Optional[str] = None
+    frequency: str = "MONTHLY" 
+    start_date: datetime
+    next_run_date: datetime
+    is_active: bool = True
+
+class RecurringTransactionCreate(RecurringTransactionBase):
+    pass
+
+class RecurringTransactionUpdate(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[Decimal] = None
+    account_id: Optional[UUID] = None
+    category: Optional[str] = None
+    frequency: Optional[str] = None
+    start_date: Optional[datetime] = None
+    next_run_date: Optional[datetime] = None
+    is_active: Optional[bool] = None
+
+class RecurringTransactionRead(RecurringTransactionBase):
+    id: UUID
+    tenant_id: UUID
+    last_run_date: Optional[datetime] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

@@ -1,0 +1,93 @@
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from backend.app.core.database import get_db
+from backend.app.modules.auth import models as auth_models
+from backend.app.modules.auth.dependencies import get_current_user
+from backend.app.modules.finance import schemas
+from backend.app.modules.finance.services.category_service import CategoryService
+
+router = APIRouter()
+
+# --- Categories ---
+@router.get("/categories", response_model=List[schemas.CategoryRead])
+def get_categories(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.get_categories(db, str(current_user.tenant_id))
+
+@router.post("/categories", response_model=schemas.CategoryRead)
+def create_category(
+    category: schemas.CategoryCreate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.create_category(db, category, str(current_user.tenant_id))
+
+@router.put("/categories/{category_id}", response_model=schemas.CategoryRead)
+def update_category(
+    category_id: str,
+    update: schemas.CategoryUpdate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    cat = CategoryService.update_category(db, category_id, update, str(current_user.tenant_id))
+    if not cat: raise HTTPException(status_code=404, detail="Category not found")
+    return cat
+
+@router.delete("/categories/{category_id}")
+def delete_category(
+    category_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    success = CategoryService.delete_category(db, category_id, str(current_user.tenant_id))
+    if not success: raise HTTPException(status_code=404, detail="Category not found")
+    return {"status": "success"}
+
+# --- Rules ---
+@router.post("/rules", response_model=schemas.CategoryRuleRead)
+def create_rule(
+    rule: schemas.CategoryRuleCreate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.create_category_rule(db, rule, str(current_user.tenant_id))
+
+@router.get("/rules", response_model=List[schemas.CategoryRuleRead])
+def get_rules(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.get_category_rules(db, str(current_user.tenant_id))
+
+@router.get("/rules/suggestions", response_model=List[schemas.RuleSuggestion])
+def get_rule_suggestions(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.get_rule_suggestions(db, str(current_user.tenant_id))
+
+@router.put("/rules/{rule_id}", response_model=schemas.CategoryRuleRead)
+def update_rule(
+    rule_id: str,
+    rule_update: schemas.CategoryRuleUpdate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db_rule = CategoryService.update_category_rule(db, rule_id, rule_update, str(current_user.tenant_id))
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return db_rule
+
+@router.delete("/rules/{rule_id}")
+def delete_rule(
+    rule_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    success = CategoryService.delete_category_rule(db, rule_id, str(current_user.tenant_id))
+    if not success:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "success"}
