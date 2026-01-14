@@ -89,6 +89,13 @@ export const financeApi = {
     setBudget: (data: any) => apiClient.post('/finance/budgets', data),
     deleteBudget: (id: string) => apiClient.delete(`/finance/budgets/${id}`),
 
+    // Recurring Transactions
+    getRecurringTransactions: () => apiClient.get('/finance/recurring'),
+    createRecurringTransaction: (data: any) => apiClient.post('/finance/recurring', data),
+    updateRecurring: (id: string, data: any) => apiClient.put(`/finance/recurring/${id}`, data),
+    deleteRecurring: (id: string) => apiClient.delete(`/finance/recurring/${id}`),
+    processRecurring: () => apiClient.post('/finance/recurring/process'),
+
     // Ingestion
     analyzeCsv: (formData: FormData) => apiClient.post('/ingestion/csv/analyze', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
