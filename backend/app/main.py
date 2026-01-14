@@ -38,6 +38,21 @@ def create_application() -> FastAPI:
     from backend.app.core.database import engine, Base
     Base.metadata.create_all(bind=engine)
 
+    # --- Schema Migrations (Manual) ---
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            # Check if column exists in accounts table
+            res = conn.execute(text("DESCRIBE accounts;")).fetchall()
+            cols = [r[0] for r in res]
+            if "credit_limit" not in cols:
+                print("[Migration] Adding credit_limit to accounts table...")
+                conn.execute(text("ALTER TABLE accounts ADD COLUMN credit_limit DECIMAL(15, 2);"))
+                conn.commit()
+                print("[Migration] Column added successfully.")
+        except Exception as e:
+            print(f"[Migration] Error checking/adding columns: {e}")
+
     # --- Background Tasks ---
     import asyncio
     from backend.app.modules.ingestion.email_sync import EmailSyncService
