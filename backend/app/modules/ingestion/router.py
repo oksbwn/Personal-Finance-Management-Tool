@@ -1,9 +1,21 @@
 from typing import List, Dict, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Body
+import json
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from backend.app.core.database import get_db
+
 from backend.app.modules.auth import models as auth_models
 from backend.app.modules.auth.dependencies import get_current_user
+
+from backend.app.modules.finance import schemas as finance_schemas
+from backend.app.modules.finance.services.transaction_service import TransactionService
+
+from backend.app.modules.ingestion.services import IngestionService
+from backend.app.modules.ingestion import models as ingestion_models
+from backend.app.modules.ingestion.pattern_service import PatternGenerator
+from backend.app.modules.ingestion.email_sync import EmailSyncService
 from backend.app.modules.ingestion.registry import SmsParserRegistry, EmailParserRegistry
 from backend.app.modules.ingestion.parsers.hdfc import HdfcSmsParser, HdfcEmailParser
 from backend.app.modules.ingestion.parsers.generic import GenericSmsParser, GenericEmailParser
@@ -11,6 +23,7 @@ from backend.app.modules.ingestion.parsers.icici import IciciSmsParser, IciciEma
 from backend.app.modules.ingestion.parsers.axis import AxisSmsParser, AxisEmailParser
 from backend.app.modules.ingestion.parsers.sbi import SbiSmsParser, SbiEmailParser
 from backend.app.modules.ingestion.parsers.kotak import KotakSmsParser, KotakEmailParser
+from backend.app.modules.ingestion.parsers.universal_parser import UniversalParser
 
 router = APIRouter(tags=["Ingestion"])
 
@@ -44,12 +57,6 @@ class EmailSyncPayload(BaseModel):
     folder: str = "INBOX"
     unread_only: bool = True
 
-from sqlalchemy.orm import Session
-from backend.app.core.database import get_db
-from backend.app.modules.ingestion.services import IngestionService
-from backend.app.modules.ingestion import models as ingestion_models
-from backend.app.modules.ingestion.pattern_service import PatternGenerator
-
 class EmailConfigCreate(BaseModel):
     email: str
     password: str
@@ -73,7 +80,7 @@ class EmailSyncLogRead(BaseModel):
     status: str
     items_processed: float
     message: Optional[str]
-
+    
     class Config:
         from_attributes = True
 
@@ -126,8 +133,6 @@ def ingest_email(
         "parsed_data": parsed,
         "result": result
     }
-
-from backend.app.modules.ingestion.email_sync import EmailSyncService
 
 @router.post("/email/sync")
 def sync_email_inbox(
@@ -253,14 +258,7 @@ def sync_specific_email(
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
     
-    # If we have a since_date (Deep Scan OR Rewind), search ALL to catch potentially read emails.
-    # Otherwise (unlikely but safe), fallback to UNSEEN.
-    criterion = 'ALL' if config.last_sync_at is None or config.last_sync_at else 'UNSEEN'
-    # Actually, always use ALL if we have logic to handle duplicates, 
-    # but let's stick to ALL if any date filter is present.
-    criterion = 'ALL' if config.last_sync_at else 'ALL' # Make it simpler: Always try ALL if we have a config
-    # Wait, let's just make it 'ALL' always, since our Deduplication is solid.
-    criterion = 'ALL'
+    criterion = 'ALL' 
     
     result = EmailSyncService.sync_emails(
         db=db,
@@ -280,15 +278,8 @@ def sync_specific_email(
         
     return result
 
-# --- Universal Import (CSV/Excel) ---
-from fastapi import UploadFile, File, Form
-from typing import List, Dict, Optional
-import json
-from backend.app.modules.ingestion.parsers.universal_parser import UniversalParser
-from backend.app.modules.finance import schemas as finance_schemas
-from backend.app.modules.finance.services import FinanceService
-
 @router.post("/csv/analyze")
+
 async def analyze_file(
     file: UploadFile = File(...),
     current_user: auth_models.User = Depends(get_current_user)
@@ -372,7 +363,7 @@ def import_csv(
                  source=payload.source,
                  external_id=txn.external_id
              )
-             FinanceService.create_transaction(db, txn_create, str(current_user.tenant_id))
+             TransactionService.create_transaction(db, txn_create, str(current_user.tenant_id))
              success_count += 1
         except Exception as e:
             errors.append(f"Row {idx+1}: {str(e)}")
@@ -411,7 +402,7 @@ def list_triage(
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return FinanceService.get_pending_transactions(db, str(current_user.tenant_id))
+    return TransactionService.get_pending_transactions(db, str(current_user.tenant_id))
 
 class TriageApproveRequest(BaseModel):
     category: Optional[str] = None
@@ -426,7 +417,7 @@ def approve_triage(
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    txn = FinanceService.approve_pending_transaction(
+    txn = TransactionService.approve_pending_transaction(
         db, 
         pending_id, 
         str(current_user.tenant_id), 
@@ -445,7 +436,7 @@ def reject_triage(
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    success = FinanceService.reject_pending_transaction(db, pending_id, str(current_user.tenant_id))
+    success = TransactionService.reject_pending_transaction(db, pending_id, str(current_user.tenant_id))
     if not success:
         raise HTTPException(status_code=404, detail="Pending transaction not found")
     return {"status": "rejected"}

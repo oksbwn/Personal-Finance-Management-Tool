@@ -2,6 +2,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 from backend.app.modules.finance import models as finance_models
+from backend.app.modules.finance.services.transaction_service import TransactionService
+from backend.app.modules.finance import schemas as finance_schemas
+from backend.app.modules.ingestion import models as ingestion_models
 from backend.app.modules.ingestion.base import ParsedTransaction
 from backend.app.modules.ingestion.transfer_detector import TransferDetector
 
@@ -63,9 +66,6 @@ class IngestionService:
              return {"status": "skipped", "reason": f"No account found and no mask in SMS"}
             
         # Create Transaction or Move to Triage
-        from backend.app.modules.finance.services import FinanceService
-        from backend.app.modules.finance import schemas as finance_schemas
-        from backend.app.modules.ingestion import models as ingestion_models
         
         # Determine amount sign
         final_amount = parsed.amount
@@ -103,7 +103,7 @@ class IngestionService:
         is_transfer, to_account_id = TransferDetector.detect(parsed.description, parsed.recipient, all_accounts, all_rules)
         
         # 2. Try to auto-categorize
-        category = FinanceService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
+        category = TransactionService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
         
         # If it's a transfer, we force category to "Transfer" if it matches a transfer rule
         if is_transfer:
@@ -125,7 +125,7 @@ class IngestionService:
                 tags=[]
             )
             try:
-                db_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
+                db_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
                 print(f"[Ingestion] SUCCESS: Created transaction {db_txn.id}")
                 return {"status": "success", "transaction_id": db_txn.id, "account": account.name}
             except Exception as e:
@@ -160,8 +160,6 @@ class IngestionService:
         """
         Save a message that looks like a transaction but failed all parsers.
         """
-        from backend.app.modules.ingestion import models as ingestion_models
-        
         # Check if already exists to avoid spam
         existing = db.query(ingestion_models.UnparsedMessage).filter(
             ingestion_models.UnparsedMessage.tenant_id == tenant_id,

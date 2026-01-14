@@ -3,8 +3,10 @@ import email
 from email.header import decode_header
 import re
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
+from backend.app.modules.ingestion import models as ingestion_models
 from backend.app.modules.ingestion.registry import EmailParserRegistry
 from backend.app.modules.ingestion.services import IngestionService
 
@@ -24,8 +26,6 @@ class EmailSyncService:
         """
         Connect to IMAP, fetch unread emails, parse them, and ingest transactions.
         """
-        from backend.app.modules.ingestion import models as ingestion_models
-        from datetime import datetime
         
         # Create Log Entry
         log_entry = ingestion_models.EmailSyncLog(
@@ -124,7 +124,6 @@ class EmailSyncService:
                             # Extract Email Header Date as Fallback
                             email_date = None
                             try:
-                                from email.utils import parsedate_to_datetime
                                 email_date = parsedate_to_datetime(msg.get("Date"))
                             except: pass
 
