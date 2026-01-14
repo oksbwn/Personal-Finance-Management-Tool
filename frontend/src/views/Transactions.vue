@@ -6,10 +6,12 @@ import { useRoute } from 'vue-router'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import ImportModal from '@/components/ImportModal.vue'
+import { useCurrency } from '@/composables/useCurrency'
 
 // ... existing code ...
 
 const showImportModal = ref(false)
+const { formatAmount } = useCurrency()
 
 const route = useRoute()
 const notify = useNotificationStore()
@@ -817,7 +819,7 @@ onMounted(() => {
                             <td class="col-amount">
                                 <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0 && !txn.is_transfer, 'is-expense': Number(txn.amount) < 0 && !txn.is_transfer, 'is-transfer': txn.is_transfer}">
                                     <span class="amount-icon">{{ txn.is_transfer ? '🔄' : (Number(txn.amount) > 0 ? '↓' : '↑') }}</span>
-                                    <span class="amount-value">{{ Math.abs(Number(txn.amount)).toFixed(2) }}</span>
+                                    <span class="amount-value">{{ formatAmount(Math.abs(Number(txn.amount))) }}</span>
                                 </div>
                             </td>
                             <td class="col-actions">
@@ -1080,8 +1082,8 @@ onMounted(() => {
                             <div class="triage-card-body">
                                 <div class="triage-main-content">
                                     <div class="triage-amount-display" :class="txn.amount < 0 ? 'expense' : 'income'">
-                                        <div class="currency-symbol">₹</div>
-                                        <div class="amount-val">{{ Math.abs(txn.amount).toLocaleString('en-IN', {minimumFractionDigits: 2}) }}</div>
+                                        <!-- Symbol removed as formatAmount includes it -->
+                                        <div class="amount-val">{{ formatAmount(Math.abs(txn.amount)) }}</div>
                                         <div class="amount-indicator">{{ txn.amount < 0 ? 'Debit' : 'Credit' }}</div>
                                     </div>
                                     

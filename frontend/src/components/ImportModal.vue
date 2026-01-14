@@ -3,6 +3,9 @@ import { ref, watch, computed } from 'vue'
 import { financeApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
+import { useCurrency } from '@/composables/useCurrency'
+
+const { formatAmount } = useCurrency()
 
 const props = defineProps<{
     isOpen: boolean
@@ -508,7 +511,7 @@ function close() {
                                         <td>{{ txn.date }}</td>
                                         <td><strong>{{ txn.recipient || '-' }}</strong></td>
                                         <td>{{ txn.description }}</td>
-                                        <td :class="txn.type">{{ txn.amount }}</td>
+                                        <td :class="txn.type">{{ formatAmount(txn.amount) }}</td>
                                         <td><span class="badge">{{ txn.type }}</span></td>
                                         <td><button class="btn-icon danger" @click="removeTxn(idx)">✕</button></td>
                                     </tr>

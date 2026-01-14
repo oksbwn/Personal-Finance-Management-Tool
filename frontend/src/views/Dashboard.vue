@@ -3,8 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
+import { useCurrency } from '@/composables/useCurrency'
 
 const router = useRouter()
+const { formatAmount } = useCurrency()
 const loading = ref(true)
 const metrics = ref({
     breakdown: {
@@ -89,7 +91,7 @@ onMounted(async () => {
                 <div class="card-icon-bg purple">🏦</div>
                 <div class="card-data">
                     <span class="label">Net Worth</span>
-                    <span class="value">{{ metrics.currency }} {{ metrics.breakdown.net_worth.toLocaleString() }}</span>
+                    <span class="value">{{ formatAmount(metrics.breakdown.net_worth, metrics.currency) }}</span>
                 </div>
             </div>
 
@@ -97,7 +99,7 @@ onMounted(async () => {
                 <div class="card-icon-bg red">💸</div>
                 <div class="card-data">
                     <span class="label">Monthly Spending</span>
-                    <span class="value">{{ metrics.currency }} {{ metrics.monthly_spending.toLocaleString() }}</span>
+                    <span class="value">{{ formatAmount(metrics.monthly_spending, metrics.currency) }}</span>
                 </div>
             </div>
 
@@ -114,7 +116,7 @@ onMounted(async () => {
                         <div class="fill" :style="{ width: Math.min(metrics.budget_health.percentage, 100) + '%' }"></div>
                     </div>
                     <span class="sub-text">
-                        {{ metrics.currency }} {{ (metrics.budget_health.limit - metrics.budget_health.spent).toLocaleString() }} left
+                        {{ formatAmount(metrics.budget_health.limit - metrics.budget_health.spent, metrics.currency) }} left
                     </span>
                 </div>
             </div>
@@ -130,7 +132,7 @@ onMounted(async () => {
                         <div class="fill blue" :style="{ width: creditUtilPercent + '%' }"></div>
                     </div>
                     <span class="sub-text">
-                        {{ metrics.currency }} {{ metrics.breakdown.available_credit.toLocaleString() }} available
+                        {{ formatAmount(metrics.breakdown.available_credit, metrics.currency) }} available
                     </span>
                 </div>
             </div>
@@ -147,21 +149,21 @@ onMounted(async () => {
                         <span class="snap-icon">🏛️</span>
                         <div class="snap-info">
                             <span class="snap-label">Bank Accounts</span>
-                            <span class="snap-val">{{ metrics.currency }} {{ metrics.breakdown.bank_balance.toLocaleString() }}</span>
+                            <span class="snap-val">{{ formatAmount(metrics.breakdown.bank_balance, metrics.currency) }}</span>
                         </div>
                     </div>
                     <div class="snapshot-item">
                         <span class="snap-icon">👛</span>
                         <div class="snap-info">
                             <span class="snap-label">Cash / Wallet</span>
-                            <span class="snap-val">{{ metrics.currency }} {{ metrics.breakdown.cash_balance.toLocaleString() }}</span>
+                            <span class="snap-val">{{ formatAmount(metrics.breakdown.cash_balance, metrics.currency) }}</span>
                         </div>
                     </div>
                     <div class="snapshot-item">
                         <span class="snap-icon">📈</span>
                         <div class="snap-info">
                             <span class="snap-label">Investments</span>
-                            <span class="snap-val">{{ metrics.currency }} {{ metrics.breakdown.investment_value.toLocaleString() }}</span>
+                            <span class="snap-val">{{ formatAmount(metrics.breakdown.investment_value, metrics.currency) }}</span>
                         </div>
                     </div>
                 </div>
@@ -186,7 +188,7 @@ onMounted(async () => {
                             </div>
                         </div>
                         <span class="recent-amount" :class="{ 'credit': txn.amount > 0 }">
-                            {{ txn.amount > 0 ? '+' : '' }}{{ metrics.currency }} {{ Math.abs(txn.amount).toLocaleString() }}
+                            {{ txn.amount > 0 ? '+' : '' }}{{ formatAmount(Math.abs(txn.amount), metrics.currency) }}
                         </span>
                     </div>
                 </div>

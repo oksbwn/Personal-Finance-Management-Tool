@@ -4,10 +4,19 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi, aiApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
+import { useSettingsStore } from '@/stores/settings'
 
 const notify = useNotificationStore()
+const settingsStore = useSettingsStore()
+import { useCurrency } from '@/composables/useCurrency'
 
-const activeTab = ref('accounts') // Defaulting to accounts for now or keeping it as 'rules'
+const { formatAmount } = useCurrency()
+
+function saveSettings() {
+    notify.success("Settings saved")
+}
+
+const activeTab = ref('general')
 const categories = ref<any[]>([])
 
 // Accounts State
@@ -778,6 +787,13 @@ async function handleMemberSubmit() {
                     <div class="header-tabs">
                         <button 
                             class="tab-btn" 
+                            :class="{ active: activeTab === 'general' }" 
+                            @click="activeTab = 'general'; searchQuery = ''"
+                        >
+                            General
+                        </button>
+                        <button 
+                            class="tab-btn" 
                             :class="{ active: activeTab === 'accounts' }" 
                             @click="activeTab = 'accounts'; searchQuery = ''"
                         >
@@ -856,6 +872,44 @@ async function handleMemberSubmit() {
             </div>
 
             <template v-else>
+                <!-- GENERAL SETTINGS TAB -->
+                <div v-if="activeTab === 'general'" class="tab-content animate-in">
+                    <div class="glass-card" style="max-width: 600px; margin: 0 auto; padding: 2rem;">
+                         <div style="text-align: center; margin-bottom: 2rem;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🛡️</div>
+                            <h2 style="font-size: 1.5rem; font-weight: 600; color: #111827; margin-bottom: 0.5rem;">Privacy & Anonymity</h2>
+                            <p style="color: #6b7280;">Adjust how sensitive financial data is displayed across the application.</p>
+                        </div>
+
+                         <div class="form-group">
+                            <label class="form-label">Masking Factor</label>
+                            <div class="input-group-flex" style="display: flex; align-items: center; gap: 1rem;">
+                                <input 
+                                    type="number" 
+                                    v-model.number="settingsStore.maskingFactor" 
+                                    min="1"
+                                    class="form-input" 
+                                    placeholder="1"
+                                    style="flex: 1;" 
+                                />
+                                <button @click="saveSettings" class="btn-primary-glow">Save</button>
+                            </div>
+                            <span class="input-hint">Divide all amounts by this number (e.g., 1, 10, 100)</span>
+                        </div>
+
+                        <div class="info-box" style="background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; margin-top: 1.5rem; display: flex; align-items: start; gap: 0.75rem;">
+                            <span style="font-size: 1.25rem;">💡</span>
+                            <div>
+                                <h4 style="font-weight: 600; color: #374151; margin-bottom: 0.25rem;">How it works</h4>
+                                <p style="font-size: 0.875rem; color: #4b5563; line-height: 1.5;">
+                                    If you set the factor to <strong>10</strong>, a transaction of <strong>₹10,000</strong> will be displayed as <strong>₹1,000</strong>. 
+                                    This allows you to share your screen or demo the app without revealing actual values.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ACCOUNTS TAB -->
                 <div v-if="activeTab === 'accounts'" class="tab-content animate-in">
                     <!-- Account Summary Widgets -->
@@ -865,28 +919,28 @@ async function handleMemberSubmit() {
                                 <span class="stat-label">Total Liquid Wealth</span>
                                 <span class="stat-icon-bg gray">⚖️</span>
                             </div>
-                            <div class="stat-value">₹ {{ accountMetrics.total.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(accountMetrics.total) }}</div>
                         </div>
                         <div class="mini-stat-card glass h-glow-success">
                             <div class="stat-top">
                                 <span class="stat-label">Bank Balance</span>
                                 <span class="stat-icon-bg green">🏦</span>
                             </div>
-                            <div class="stat-value">₹ {{ accountMetrics.bank.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(accountMetrics.bank) }}</div>
                         </div>
                         <div class="mini-stat-card glass h-glow-warning">
                             <div class="stat-top">
                                 <span class="stat-label">Cash on Hand</span>
                                 <span class="stat-icon-bg yellow">💵</span>
                             </div>
-                            <div class="stat-value">₹ {{ accountMetrics.cash.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(accountMetrics.cash) }}</div>
                         </div>
                         <div class="mini-stat-card glass h-glow-danger">
                             <div class="stat-top">
                                 <span class="stat-label">Credit Consumed</span>
                                 <span class="stat-icon-bg red">💳</span>
                             </div>
-                            <div class="stat-value">₹ {{ accountMetrics.credit.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(accountMetrics.credit) }}</div>
                         </div>
                    </div>
 
@@ -910,10 +964,10 @@ async function handleMemberSubmit() {
                                 </div>
                                 <div class="card-bottom">
                                     <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
-                                        <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }} used</span>
-                                        <span v-if="acc.credit_limit" class="card-meta">₹ {{ Number(acc.credit_limit - (acc.balance || 0)).toLocaleString() }} left</span>
+                                        <span class="card-balance">{{ formatAmount(acc.balance || 0) }} used</span>
+                                        <span v-if="acc.credit_limit" class="card-meta">{{ formatAmount(acc.credit_limit - (acc.balance || 0)) }} left</span>
                                     </div>
-                                    <span v-else class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                                    <span v-else class="card-balance">{{ formatAmount(acc.balance || 0) }}</span>
                                     <span class="card-meta">Auto-Detected</span>
                                 </div>
                             </div>
@@ -938,10 +992,10 @@ async function handleMemberSubmit() {
                             </div>
                             <div class="card-bottom">
                                 <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
-                                    <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }} <span class="card-sub-label">used</span></span>
-                                    <span v-if="acc.credit_limit" class="card-available-info">₹ {{ Number(acc.credit_limit - (acc.balance || 0)).toLocaleString() }} <span class="card-sub-label">left</span></span>
+                                    <span class="card-balance">{{ formatAmount(acc.balance || 0) }} <span class="card-sub-label">used</span></span>
+                                    <span v-if="acc.credit_limit" class="card-available-info">{{ formatAmount(acc.credit_limit - (acc.balance || 0)) }} <span class="card-sub-label">left</span></span>
                                 </div>
-                                <span v-else class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                                <span v-else class="card-balance">{{ formatAmount(acc.balance || 0) }}</span>
                                     <div class="card-pills">
                                         <span class="owner-badge">
                                             {{ resolveOwnerAvatar(acc) }} {{ resolveOwnerName(acc) }}

@@ -4,7 +4,9 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
+import { useCurrency } from '@/composables/useCurrency'
 
+const { formatAmount } = useCurrency()
 const notify = useNotificationStore()
 
 const budgets = ref<any[]>([])
@@ -165,10 +167,9 @@ onMounted(() => {
                             <div class="card-main">
                                 <span class="card-label">Overall Monthly Limit</span>
                                 <div class="price-row">
-                                    <span class="currency">₹</span>
-                                    <span class="amount-large">{{ Number(overallBudget.spent).toLocaleString() }}</span>
+                                    <span class="amount-large">{{ formatAmount(overallBudget.spent) }}</span>
                                     <span class="separator">/</span>
-                                    <span class="total-limit">{{ Number(overallBudget.amount_limit).toLocaleString() }}</span>
+                                    <span class="total-limit">{{ formatAmount(overallBudget.amount_limit) }}</span>
                                 </div>
                             </div>
                             <div class="card-actions">
@@ -192,7 +193,7 @@ onMounted(() => {
                                     {{ overallBudget.percentage?.toFixed(1) }}% Used
                                 </span>
                                 <span class="remaining-text" :class="{ 'over': overallBudget.remaining < 0 }">
-                                    {{ overallBudget.remaining >= 0 ? `₹${Number(overallBudget.remaining).toLocaleString()} remaining` : `₹${Math.abs(Number(overallBudget.remaining)).toLocaleString()} overspent` }}
+                                    {{ overallBudget.remaining >= 0 ? `${formatAmount(overallBudget.remaining)} remaining` : `${formatAmount(Math.abs(overallBudget.remaining))} overspent` }}
                                 </span>
                             </div>
                         </div>
@@ -205,21 +206,21 @@ onMounted(() => {
                                 <span class="stat-label">Budgeted</span>
                                 <span class="stat-icon-bg gray">📑</span>
                             </div>
-                            <div class="stat-value">₹ {{ effectiveTotalBudget.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(effectiveTotalBudget) }}</div>
                         </div>
                         <div class="mini-stat-card glass h-glow-danger">
                             <div class="stat-top">
                                 <span class="stat-label">Total Outflow</span>
                                 <span class="stat-icon-bg red">💸</span>
                             </div>
-                            <div class="stat-value">₹ {{ totalSpent.toLocaleString() }}</div>
+                            <div class="stat-value">{{ formatAmount(totalSpent) }}</div>
                         </div>
                         <div class="mini-stat-card glass h-glow-success">
                             <div class="stat-top">
                                 <span class="stat-label">Budget Safe</span>
                                 <span class="stat-icon-bg green">🛡️</span>
                             </div>
-                            <div class="stat-value" :class="{ 'negative': totalRemaining < 0 }">₹ {{ totalRemaining.toLocaleString() }}</div>
+                            <div class="stat-value" :class="{ 'negative': totalRemaining < 0 }">{{ formatAmount(totalRemaining) }}</div>
                         </div>
                     </div>
 
@@ -238,8 +239,8 @@ onMounted(() => {
                             
                             <div class="progress-section">
                                 <div class="progress-info-compact">
-                                    <span class="spent">₹{{ Number(b.spent).toLocaleString() }}</span>
-                                    <span class="limit">of ₹{{ Number(b.amount_limit).toLocaleString() }}</span>
+                                    <span class="spent">{{ formatAmount(b.spent) }}</span>
+                                    <span class="limit">of {{ formatAmount(b.amount_limit) }}</span>
                                 </div>
                                 <div class="progress-bar-bg-sm">
                                     <div class="progress-bar-fill-sm" 
@@ -251,7 +252,7 @@ onMounted(() => {
                                     ></div>
                                 </div>
                                 <div class="remaining-footer" :class="{ 'over': b.remaining < 0 }">
-                                    {{ b.remaining >= 0 ? `₹${Number(b.remaining).toLocaleString()} left` : `₹${Math.abs(Number(b.remaining)).toLocaleString()} over` }}
+                                    {{ b.remaining >= 0 ? `${formatAmount(b.remaining)} left` : `${formatAmount(Math.abs(b.remaining))} over` }}
                                 </div>
                             </div>
                         </div>
