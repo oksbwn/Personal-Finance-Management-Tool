@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi, ingestionApi } from '@/api/client'
+import { financeApi } from '@/api/client'
 import { useRoute } from 'vue-router'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
@@ -2805,12 +2805,12 @@ onMounted(() => {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    background: rgba(var(--brand-primary-rgb, 99, 102, 241), 0.1);
-    border: 1px solid rgba(var(--brand-primary-rgb, 99, 102, 241), 0.2);
+    background: #eef2ff; /* Light Indigo */
+    border: 1px solid #c7d2fe;
     border-radius: 100px;
     font-size: 10px;
     font-family: inherit;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
     letter-spacing: 0.02em;
     font-weight: 500;
 }

@@ -44,7 +44,7 @@ export interface AccountCreate {
     currency: string;
     account_mask?: string;
     balance?: number;
-    owner_name?: string;
+
 }
 
 export interface AccountUpdate {
@@ -52,7 +52,7 @@ export interface AccountUpdate {
     type?: string;
     currency?: string;
     account_mask?: string;
-    owner_name?: string;
+
 }
 
 export interface TransactionUpdate {
@@ -68,6 +68,7 @@ export const financeApi = {
     getAccountTransactionCount: (id: string) => apiClient.get(`/finance/accounts/${id}/transaction-count`),
     getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string) =>
         apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate } }),
+    createTransaction: (data: any) => apiClient.post('/finance/transactions', data),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
     smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
         apiClient.post('/finance/transactions/smart-categorize', data),
