@@ -4,7 +4,10 @@ from sqlalchemy.orm import Session
 from backend.app.core.database import SessionLocal
 from backend.app.modules.finance import models
 from backend.app.modules.finance.services.recurring_service import RecurringService
+from backend.app.modules.ingestion.email_sync import EmailSyncService
+from backend.app.modules.ingestion import models as ingestion_models
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,39 @@ def daily_recurrence_check():
     finally:
         db.close()
 
+def auto_sync_job():
+    """
+    Job to check and run auto-sync for all active email configurations.
+    """
+    logger.info("[AutoSync] Checking for scheduled syncs...")
+    db: Session = SessionLocal()
+    try:
+        configs = db.query(ingestion_models.EmailConfiguration).filter(
+            ingestion_models.EmailConfiguration.is_active == True,
+            ingestion_models.EmailConfiguration.auto_sync_enabled == True
+        ).all()
+        
+        logger.info(f"[AutoSync] Found {len(configs)} active configs.")
+        for config in configs:
+            logger.info(f"[AutoSync] Syncing {config.email}...")
+            try:
+                EmailSyncService.sync_emails(
+                    db=db,
+                    tenant_id=config.tenant_id,
+                    config_id=config.id,
+                    imap_server=config.imap_server,
+                    email_user=config.email,
+                    email_pass=config.password,
+                    folder=config.folder,
+                    search_criterion='ALL'
+                )
+            except Exception as e:
+                logger.error(f"[AutoSync] Error syncing {config.email}: {e}")
+    except Exception as e:
+        logger.error(f"[AutoSync] General Loop Error: {e}")
+    finally:
+        db.close()
+
 def start_scheduler():
     # Run daily at 00:01 UTC (or server time)
     trigger = CronTrigger(hour=0, minute=1)
@@ -53,6 +89,10 @@ def start_scheduler():
     # For now, stick to daily.
     
     scheduler.add_job(daily_recurrence_check, trigger, id="daily_recurrence_check", replace_existing=True)
+    
+    # Run email sync every 15 minutes
+    scheduler.add_job(auto_sync_job, 'interval', minutes=15, id="auto_sync_job", replace_existing=True)
+    
     scheduler.start()
     logger.info("APScheduler started.")
 
