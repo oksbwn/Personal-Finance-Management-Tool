@@ -112,7 +112,7 @@ export const financeApi = {
 
     // Triage & Training
     getTriage: () => apiClient.get('/ingestion/triage'),
-    approveTriage: (id: string, category?: string) => apiClient.post(`/ingestion/triage/${id}/approve`, { category }),
+    approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
     rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
     getTraining: () => apiClient.get('/ingestion/training'),
     labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRoute } from 'vue-router'
@@ -85,7 +85,9 @@ const defaultForm = {
     category: '',
     amount: null,
     date: new Date().toISOString().slice(0, 16), // YYYY-MM-DDTHH:mm
-    account_id: ''
+    account_id: '',
+    is_transfer: false,
+    to_account_id: ''
 }
 const form = ref({ ...defaultForm })
 
@@ -165,7 +167,11 @@ async function fetchTriage() {
             financeApi.getTriage(),
             financeApi.getTraining()
         ])
-        triageTransactions.value = res.data
+        triageTransactions.value = res.data.map((t: any) => ({
+            ...t,
+            is_transfer: !!t.is_transfer,
+            create_rule: false
+        }))
         unparsedMessages.value = trainingRes.data
     } catch (e) {
         console.error("Failed to fetch triage", e)
@@ -174,9 +180,14 @@ async function fetchTriage() {
     }
 }
 
-async function approveTriage(id: string, category?: string) {
+async function approveTriage(txn: any) {
     try {
-        await financeApi.approveTriage(id, category)
+        await financeApi.approveTriage(txn.id, {
+            category: txn.category,
+            is_transfer: txn.is_transfer,
+            to_account_id: txn.to_account_id,
+            create_rule: txn.create_rule
+        })
         notify.success("Transaction approved")
         fetchTriage()
         fetchData() // Refresh list in case they switch back
@@ -311,7 +322,13 @@ const analyticsData = computed(() => {
     data.forEach(t => {
         const amt = Number(t.amount)
         const isExpense = amt < 0
+        const isTransfer = t.is_transfer === true
         const absAmt = Math.abs(amt)
+
+        if (isTransfer) {
+            // Skip transfers in Income/Expense
+            return
+        }
 
         if (!isExpense) income += absAmt
         else {
@@ -513,10 +530,21 @@ function openAddModal() {
     form.value = { 
         ...defaultForm, 
         account_id: selectedAccount.value || (accounts.value[0]?.id || ''),
-        date: new Date().toISOString().slice(0, 16)
+        date: new Date().toISOString().slice(0, 16),
+        is_transfer: false,
+        to_account_id: '',
     }
     showModal.value = true
 }
+
+// Watch for transfer toggle to auto-set category
+watch(() => form.value.is_transfer, (isTransfer) => {
+    if (isTransfer) {
+        form.value.category = 'Transfer'
+    } else if (form.value.category === 'Transfer') {
+        form.value.category = '' // Reset if it was transfer
+    }
+})
 
 function openEditModal(txn: any) {
     isEditing.value = true
@@ -527,7 +555,9 @@ function openEditModal(txn: any) {
         category: txn.category,
         amount: txn.amount,
         date: txn.date ? txn.date.slice(0, 16) : new Date().toISOString().slice(0, 16),
-        account_id: txn.account_id
+        account_id: txn.account_id,
+        is_transfer: txn.is_transfer || false,
+        to_account_id: txn.transfer_account_id || ''
     }
     showModal.value = true
 }
@@ -539,7 +569,9 @@ async function handleSubmit() {
             category: form.value.category,
             amount: Number(form.value.amount),
             date: new Date(form.value.date).toISOString(),
-            account_id: form.value.account_id
+            account_id: form.value.account_id,
+            is_transfer: form.value.is_transfer,
+            to_account_id: form.value.to_account_id
         }
 
         if (isEditing.value && editingTxnId.value) {
@@ -768,9 +800,13 @@ onMounted(() => {
                                         <span class="account-badge">{{ getAccountName(txn.account_id) }}</span>
                                         <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
                                         <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
+                             <span v-if="txn.is_transfer" class="ai-badge-mini" style="background: #ecfdf5; color: #059669; border-color: #059669;" title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
                                         <span class="category-pill">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
+                                        </span>
+                                        <span class="ref-id-pill" v-if="txn.is_transfer">
+                                            <span class="ref-icon">🔄</span> Transfer
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.external_id">
                                             <span class="ref-icon">🆔</span> {{ txn.external_id }}
@@ -779,8 +815,8 @@ onMounted(() => {
                                 </div>
                             </td>
                             <td class="col-amount">
-                                <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0, 'is-expense': Number(txn.amount) < 0}">
-                                    <span class="amount-icon">{{ Number(txn.amount) > 0 ? '↓' : '↑' }}</span>
+                                <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0 && !txn.is_transfer, 'is-expense': Number(txn.amount) < 0 && !txn.is_transfer, 'is-transfer': txn.is_transfer}">
+                                    <span class="amount-icon">{{ txn.is_transfer ? '🔄' : (Number(txn.amount) > 0 ? '↓' : '↑') }}</span>
                                     <span class="amount-value">{{ Math.abs(Number(txn.amount)).toFixed(2) }}</span>
                                 </div>
                             </td>
@@ -1031,47 +1067,101 @@ onMounted(() => {
                     </div>
 
                     <div class="triage-grid">
-                    <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card">
-                        <div class="triage-card-header">
-                            <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
-                            <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
-                            <span class="triage-date">{{ formatDate(txn.date).day }} {{ formatDate(txn.date).meta }}</span>
-                        </div>
-                        
-                        <div class="triage-card-body">
-                            <div class="triage-amount-col" :class="txn.amount < 0 ? 'expense' : 'income'">
-                                <div class="amount-val">₹{{ Math.abs(txn.amount).toFixed(2) }}</div>
-                                <div class="amount-type">{{ txn.amount < 0 ? 'Debit' : 'Credit' }}</div>
-                            </div>
-                            <div class="triage-details-col">
-                                <h3 class="triage-title">{{ txn.recipient || txn.description }}</h3>
-                                <div class="triage-meta">
-                                    <span class="meta-item">📍 {{ getAccountName(txn.account_id) }}</span>
-                                    <span class="meta-item" v-if="txn.description">📝 {{ txn.description }}</span>
-                                    <span class="ref-id-pill small" v-if="txn.external_id">🆔 {{ txn.external_id }}</span>
-                                    <span class="ref-id-pill small" v-if="txn.balance">💰 Bal: ₹{{ txn.balance.toFixed(2) }}</span>
-                                    <span class="ref-id-pill small" v-if="txn.credit_limit">💳 Limit: ₹{{ txn.credit_limit.toFixed(2) }}</span>
+                        <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card" :class="[txn.amount < 0 ? 'debit-theme' : 'credit-theme', { 'is-transfer-active': txn.is_transfer }]">
+                            <div class="triage-card-header">
+                                <div class="header-left">
+                                    <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
+                                    <span v-if="txn.is_ai_parsed" class="ai-badge-mini pulse" title="Extracted using Gemini AI">✨ AI Verified</span>
+                                    <span v-if="txn.is_transfer" class="transfer-badge-mini" title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
                                 </div>
-                                <div v-if="txn.raw_message" class="raw-message-preview" :title="txn.raw_message">
-                                    Raw: {{ txn.raw_message.substring(0, 60) }}...
-                                </div>
+                                <span class="triage-date">{{ formatDate(txn.date).day }} <span class="date-sep">•</span> {{ formatDate(txn.date).meta }}</span>
                             </div>
-                        </div>
+                            
+                            <div class="triage-card-body">
+                                <div class="triage-main-content">
+                                    <div class="triage-amount-display" :class="txn.amount < 0 ? 'expense' : 'income'">
+                                        <div class="currency-symbol">₹</div>
+                                        <div class="amount-val">{{ Math.abs(txn.amount).toLocaleString('en-IN', {minimumFractionDigits: 2}) }}</div>
+                                        <div class="amount-indicator">{{ txn.amount < 0 ? 'Debit' : 'Credit' }}</div>
+                                    </div>
+                                    
+                                    <div class="triage-details-info">
+                                        <h3 class="triage-title">{{ txn.recipient || txn.description }}</h3>
+                                        <div class="triage-account-info">
+                                            <span class="acc-indicator"></span>
+                                            {{ getAccountName(txn.account_id) }}
+                                        </div>
+                                    </div>
+                                </div>
 
-                        <div class="triage-card-footer">
-                            <button @click="rejectTriage(txn.id)" class="btn-discard">Discard</button>
-                            <div class="approval-form">
-                                <CustomSelect 
-                                    v-model="txn.category" 
-                                    :options="categoryOptions"
-                                    placeholder="Set Category"
-                                    class="triage-select"
-                                />
-                                <button @click="approveTriage(txn.id, txn.category)" class="btn-approve">Approve</button>
+                                <div class="triage-meta-pills">
+                                    <div class="meta-pill" v-if="txn.description">
+                                        <span class="pill-icon">📝</span> {{ txn.description }}
+                                    </div>
+                                    <div class="meta-pill" v-if="txn.external_id">
+                                        <span class="pill-icon">🆔</span> {{ txn.external_id }}
+                                    </div>
+                                    <div class="meta-pill highlight" v-if="txn.balance">
+                                        <span class="pill-icon">💰</span> Bal: ₹{{ txn.balance.toFixed(2) }}
+                                    </div>
+                                </div>
+
+                                <div v-if="txn.raw_message" class="triage-raw-box">
+                                    <div class="raw-label">Origin Message</div>
+                                    <div class="raw-content-text">{{ txn.raw_message }}</div>
+                                </div>
+                            </div>
+
+                            <div class="triage-card-actions">
+                                <div class="action-top-row">
+                                    <div class="triage-input-group">
+                                        <div class="toggle-control">
+                                            <label class="premium-switch">
+                                                <input type="checkbox" v-model="txn.is_transfer">
+                                                <span class="premium-slider"></span>
+                                            </label>
+                                            <span class="toggle-text">{{ txn.is_transfer ? 'Internal Transfer' : 'Expense/Income' }}</span>
+                                        </div>
+
+                                        <div class="select-container">
+                                            <CustomSelect 
+                                                v-if="txn.is_transfer"
+                                                v-model="txn.to_account_id" 
+                                                :options="accountOptions.filter(a => a.value !== txn.account_id)"
+                                                :placeholder="txn.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'"
+                                                class="triage-select-premium"
+                                            />
+                                            <CustomSelect 
+                                                v-else
+                                                v-model="txn.category" 
+                                                :options="categoryOptions"
+                                                placeholder="Assign Category"
+                                                class="triage-select-premium"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="action-bottom-row">
+                                    <button @click="rejectTriage(txn.id)" class="btn-triage-secondary">Discard</button>
+                                    
+                                    <div class="approval-cluster">
+                                        <label class="cache-checkbox" title="Create rule for future automated handling">
+                                            <input type="checkbox" v-model="txn.create_rule">
+                                            <span class="checkbox-box">
+                                                <span class="checkbox-icon">💾</span>
+                                            </span>
+                                            <span class="checkbox-text">Save Rule</span>
+                                        </label>
+                                        <button @click="approveTriage(txn)" class="btn-triage-primary">
+                                            Confirm Entry
+                                            <span class="btn-shimmer"></span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
                     <div v-if="triageTransactions.length === 0" class="empty-state-triage">
                         <div class="empty-glow-icon">✨</div>
@@ -1090,23 +1180,37 @@ onMounted(() => {
                     </div>
 
                     <div class="triage-grid">
-                        <div v-for="msg in unparsedMessages" :key="msg.id" class="glass-card triage-card training-card">
+                        <div v-for="msg in unparsedMessages" :key="msg.id" class="glass-card triage-card training-theme">
                             <div class="triage-card-header">
-                                <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source }}</span>
+                                <div class="header-left">
+                                    <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source }}</span>
+                                    <span class="ai-badge-mini" style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs Training</span>
+                                </div>
                                 <span class="triage-date">{{ formatDate(msg.created_at).day }}</span>
                             </div>
                             
                             <div class="triage-card-body">
-                                <div class="training-content">
-                                    <div class="training-sender" v-if="msg.sender">From: {{ msg.sender }}</div>
-                                    <div class="training-subject" v-if="msg.subject">Sub: {{ msg.subject }}</div>
-                                    <pre class="training-raw-preview">{{ msg.raw_content }}</pre>
+                                <div class="training-content-premium">
+                                    <div class="training-header">
+                                        <div class="training-sender" v-if="msg.sender">
+                                            <span class="label">Sender:</span> {{ msg.sender }}
+                                        </div>
+                                        <div class="training-subject" v-if="msg.subject">
+                                            <span class="label">Subject:</span> {{ msg.subject }}
+                                        </div>
+                                    </div>
+                                    <pre class="training-raw-preview-premium">{{ msg.raw_content }}</pre>
                                 </div>
                             </div>
 
-                            <div class="triage-card-footer">
-                                <button @click="dismissTraining(msg.id)" class="btn-discard">Dismiss</button>
-                                <button @click="startLabeling(msg)" class="btn-approve btn-label">Label Fields</button>
+                            <div class="triage-card-actions">
+                                <div class="action-bottom-row">
+                                    <button @click="dismissTraining(msg.id)" class="btn-triage-secondary">Dismiss</button>
+                                    <button @click="startLabeling(msg)" class="btn-triage-primary">
+                                         Label Fields
+                                         <span class="btn-shimmer"></span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1156,13 +1260,33 @@ onMounted(() => {
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Category</label>
-                        <CustomSelect 
-                            v-model="form.category" 
-                            :options="categoryOptions"
-                            placeholder="Select Category"
-                            allow-new
-                        />
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                             <label class="form-label" style="margin-bottom: 0;">Category</label>
+                             
+                             <div class="toggle-control" style="transform: scale(0.9); transform-origin: right center;">
+                                <label class="premium-switch">
+                                    <input type="checkbox" v-model="form.is_transfer">
+                                    <span class="premium-slider"></span>
+                                </label>
+                                <span class="toggle-text" style="margin-left: 0.5rem;">{{ form.is_transfer ? 'Internal Transfer' : 'Regular' }}</span>
+                            </div>
+                        </div>
+
+                        <div v-if="form.is_transfer">
+                             <CustomSelect 
+                                v-model="form.to_account_id"
+                                :options="accountOptions.filter(a => a.value !== form.account_id)"
+                                :placeholder="!form.amount || form.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'" 
+                            />
+                        </div>
+                        <div v-else>
+                            <CustomSelect 
+                                v-model="form.category" 
+                                :options="categoryOptions"
+                                placeholder="Select Category"
+                                allow-new
+                            />
+                        </div>
                     </div>
                    
                     <div class="modal-footer">
@@ -2538,175 +2662,445 @@ onMounted(() => {
     font-weight: 700;
 }
 
+
+
+/* --- Premium Triage Card Styling --- */
 .triage-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
     gap: 1.5rem;
 }
 
 .triage-card {
     display: flex;
     flex-direction: column;
-    padding: 1.25rem;
-    border: 1px solid rgba(255,255,255,0.2);
-    transition: transform 0.2s, box-shadow 0.2s;
+    padding: 0 !important;
+    overflow: visible;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
 }
 
 .triage-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+    transform: translateY(-6px) scale(1.01);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.04);
+}
+
+.triage-card.is-transfer-active {
+    border-color: rgba(99, 102, 241, 0.3);
+    background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.95), rgba(238, 242, 255, 0.5));
 }
 
 .triage-card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+    background: rgba(0, 0, 0, 0.01);
+    border-top-left-radius: 1.25rem;
+    border-top-right-radius: 1.25rem;
 }
 
-.source-tag {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    background: #e5e7eb;
-    color: #4b5563;
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
-
-.source-tag.sms { background: #dcfce7; color: #166534; }
-.source-tag.email { background: #dbeafe; color: #1e40af; }
 
 .triage-date {
     font-size: 0.75rem;
-    color: #9ca3af;
+    font-weight: 500;
+    color: var(--color-text-muted);
 }
+
+.date-sep { opacity: 0.3; margin: 0 4px; }
 
 .triage-card-body {
-    display: flex;
-    gap: 1.25rem;
-    padding-bottom: 1.25rem;
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    padding: 1.25rem;
+    flex-grow: 1;
 }
 
-.triage-amount-col {
+.triage-main-content {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.triage-amount-display {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-width: 100px;
-    padding: 0.75rem;
-    background: rgba(0,0,0,0.03);
-    border-radius: 12px;
+    min-width: 110px;
+    padding: 1rem;
+    border-radius: 16px;
+    position: relative;
 }
 
-.triage-amount-col.expense .amount-val { color: #ef4444; }
-.triage-amount-col.income .amount-val { color: #10b981; }
+.currency-symbol {
+    font-size: 0.875rem;
+    opacity: 0.6;
+    margin-bottom: -4px;
+}
 
 .amount-val {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.amount-indicator {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+}
+
+/* Themes */
+.debit-theme .triage-amount-display { background: rgba(239, 68, 68, 0.08); color: #dc2626; }
+.credit-theme .triage-amount-display { background: rgba(16, 185, 129, 0.08); color: #059669; }
+
+.triage-details-info { flex-grow: 1; }
+.triage-title {
     font-size: 1.125rem;
     font-weight: 700;
+    margin-bottom: 0.35rem;
+    color: var(--color-text-primary);
 }
 
-.amount-type {
-    font-size: 0.7rem;
+.triage-account-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+.acc-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.5;
+}
+
+.triage-meta-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.meta-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+.meta-pill.highlight {
+    background: rgba(99, 102, 241, 0.06);
+    color: #4f46e5;
+}
+
+.triage-raw-box {
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 10px;
+    border: 1px dashed rgba(0, 0, 0, 0.05);
+}
+
+.raw-label {
+    font-size: 0.65rem;
+    font-weight: 700;
     text-transform: uppercase;
-    font-weight: 600;
-    opacity: 0.6;
+    color: var(--color-text-muted);
+    margin-bottom: 4px;
 }
 
-.triage-details-col {
-    flex: 1;
-    min-width: 0; /* Critical for flex child truncation */
+.raw-content-text {
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.triage-card-actions {
+    padding: 1rem 1.25rem;
+    background: rgba(0, 0, 0, 0.015);
+    border-top: 1px solid rgba(0, 0, 0, 0.03);
     display: flex;
     flex-direction: column;
+    gap: 1rem;
+    border-bottom-left-radius: 1.25rem;
+    border-bottom-right-radius: 1.25rem;
 }
 
-.triage-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #111827;
-    margin: 0 0 0.5rem 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.triage-meta {
+.action-top-row { display: flex; align-items: center; }
+.triage-input-group {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-bottom: 0.75rem;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
 }
 
-.meta-item {
-    font-size: 0.8125rem;
-    color: #6b7280;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.toggle-control {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 140px;
 }
 
-.raw-message-preview {
-    font-family: monospace;
-    font-size: 0.7rem;
-    padding: 0.5rem;
-    background: #f9fafb;
-    border-radius: 6px;
-    color: #9ca3af;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.toggle-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
 }
 
-.triage-card-footer {
+.select-container { flex-grow: 1; }
+
+.triage-select-premium {
+    width: 100%;
+}
+
+.triage-select-premium :deep(.select-trigger) {
+    background: white;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.triage-select-premium :deep(.select-trigger:focus-within) {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+
+.action-bottom-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: 1rem;
-    gap: 1rem;
 }
 
-.approval-form {
-    display: flex;
-    gap: 0.5rem;
-    flex: 1;
-}
-
-.triage-select {
-    flex: 1;
-}
-
-.btn-approve {
-    background: #4f46e5;
+/* Premium Buttons & Switches */
+.btn-triage-primary {
+    padding: 0.625rem 1.5rem;
+    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
     color: white;
     border: none;
-    padding: 0 1rem;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    transition: background 0.2s;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
-.btn-approve:hover { background: #4338ca; }
+.btn-triage-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+}
 
-.btn-discard {
-    background: transparent;
-    color: #9ca3af;
-    border: 1px solid #e5e7eb;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
+.btn-triage-primary:active { transform: translateY(0); }
+
+.btn-shimmer {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.2) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-25deg);
+    transition: none;
+}
+
+.btn-triage-primary:hover .btn-shimmer {
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    100% { left: 150%; }
+}
+
+.approval-cluster {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.btn-triage-secondary {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
+    transition: color 0.2s;
+}
+
+.btn-triage-secondary:hover { color: #dc2626; }
+
+.cache-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.cache-checkbox input { display: none; }
+
+.checkbox-box {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: all 0.2s;
 }
 
-.btn-discard:hover {
-    color: #ef4444;
-    border-color: #fecaca;
-    background: #fef2f2;
+.checkbox-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
+
+.cache-checkbox input:checked + .checkbox-box {
+    background: #eef2ff;
+    color: #4f46e5;
+    transform: scale(1.1);
+}
+
+.checkbox-icon {
+    font-size: 1rem;
+    filter: grayscale(1);
+    opacity: 0.5;
+}
+
+.cache-checkbox input:checked + .checkbox-box .checkbox-icon {
+    filter: grayscale(0);
+    opacity: 1;
+}
+
+/* Premium Slider */
+.premium-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.premium-switch input { opacity: 0; width: 0; height: 0; }
+
+.premium-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #e2e8f0;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.premium-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px; width: 16px;
+  left: 3px; bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+input:checked + .premium-slider { background-color: #4f46e5; }
+input:checked + .premium-slider:before { transform: translateX(18px); }
+
+/* Badges */
+.transfer-badge-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #ecfdf5;
+    color: #059669;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    border: 1px solid rgba(5, 150, 105, 0.2);
+}
+
+.pulse {
+    animation: pulse-animation 2s infinite;
+}
+
+@keyframes pulse-animation {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Transfer Active State Decoration */
+.is-transfer-active.triage-card {
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.1);
+}
+
+.training-theme.triage-card {
+    border-left: 4px solid #f59e0b;
+}
+
+.training-header {
+    margin-bottom: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.training-sender, .training-subject {
+    font-size: 0.8rem;
+    color: var(--color-text-primary);
+    font-weight: 500;
+}
+
+.training-sender .label, .training-subject .label {
+    color: var(--color-text-muted);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.training-raw-preview-premium {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    max-height: 120px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    line-height: 1.5;
 }
 
 .empty-state-triage {
@@ -2773,5 +3167,112 @@ onMounted(() => {
     text-transform: uppercase;
     border: 1px solid rgba(79, 70, 229, 0.2);
     cursor: help;
+}
+
+/* --- Transfer & Toggle Logic CSS --- */
+.approval-form {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.transfer-manual-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.toggle-label {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.rule-toggle {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.rule-toggle input {
+    display: none;
+}
+
+.rule-toggle label {
+    cursor: pointer;
+    font-size: 1rem;
+    opacity: 0.3;
+    transition: all 0.2s;
+}
+
+.rule-toggle input:checked + label {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+/* Switch UI */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+}
+
+.switch input { 
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: var(--brand-primary, #6366f1);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--brand-primary, #6366f1);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(12px);
+  -ms-transform: translateX(12px);
+  transform: translateX(12px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+.amount-cell.is-transfer {
+    color: #64748b; /* Slate 500 */
+    background: #f1f5f9;
+    font-style: italic;
 }
 </style>
