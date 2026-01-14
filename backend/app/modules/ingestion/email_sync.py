@@ -121,20 +121,30 @@ class EmailSyncService:
                                 body = re.sub('<[^<]+?>', ' ', body)
                                 body = " ".join(body.split())
 
+                            # Extract Email Header Date as Fallback
+                            email_date = None
+                            try:
+                                from email.utils import parsedate_to_datetime
+                                email_date = parsedate_to_datetime(msg.get("Date"))
+                            except: pass
+
                             # Parse via Registry
-                            parsed = EmailParserRegistry.parse(subject, body)
+                            parsed = EmailParserRegistry.parse(subject, body, email_date)
                             if parsed:
-                                print(f"[EmailSync] SUCCESS! Parsed: {parsed.amount} {parsed.recipient}")
+                                print(f"[EmailSync] SUCCESS! Parsed: {parsed.amount} {parsed.recipient} (Ref: {parsed.ref_id})")
                                 result = IngestionService.process_transaction(db, tenant_id, parsed)
-                                if result.get("status") == "success":
+                                status = result.get("status")
+                                
+                                if status in ["success", "triaged"]:
                                     stats["processed"] += 1
+                                    print(f"[EmailSync] {status.upper()}: {parsed.amount} to {result.get('account', 'Unknown')}")
                                 elif result.get("deduplicated"):
                                     # Explicitly log deduplication for user confidence
                                     print(f"[EmailSync] SKIPPED (Duplicate: {result.get('reason')})")
-                                    stats["processed"] += 0 # Don't count as processed or failed
                                 else:
                                     stats["failed"] += 1
-                                    err_msg = f"Ingestion failed for '{subject[:30]}...': {result.get('message') or result.get('reason')}"
+                                    reason = result.get('message') or result.get('reason') or "Unknown Error"
+                                    err_msg = f"Ingestion failed for '{subject[:30]}...': {reason}"
                                     stats["errors"].append(err_msg)
                                     print(f"[EmailSync] {err_msg}")
                             else:
