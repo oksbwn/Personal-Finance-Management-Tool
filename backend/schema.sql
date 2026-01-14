@@ -162,3 +162,30 @@ CREATE TABLE parsing_patterns (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+
+CREATE TABLE ai_configurations (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	provider VARCHAR DEFAULT 'gemini', 
+	model_name VARCHAR DEFAULT 'gemini-pro', 
+	api_key VARCHAR, 
+	is_enabled BOOLEAN DEFAULT TRUE, 
+	prompts_json VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	updated_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE ai_call_cache (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	content_hash VARCHAR NOT NULL, 
+	provider VARCHAR NOT NULL, 
+	model_name VARCHAR NOT NULL, 
+	response_json VARCHAR NOT NULL, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_ai_call_cache_content_hash ON ai_call_cache (content_hash);

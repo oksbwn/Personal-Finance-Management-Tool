@@ -793,6 +793,7 @@ onMounted(() => {
                                     <div class="txn-meta-row">
                                         <span class="account-badge">{{ getAccountName(txn.account_id) }}</span>
                                         <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
+                                        <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
                                         <span class="category-pill">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
@@ -1016,6 +1017,7 @@ onMounted(() => {
                     <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card">
                         <div class="triage-card-header">
                             <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
+                            <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
                             <span class="triage-date">{{ formatDate(txn.date).day }} {{ formatDate(txn.date).meta }}</span>
                         </div>
                         
@@ -2672,5 +2674,19 @@ onMounted(() => {
 .ref-icon {
     font-size: 10px;
     filter: grayscale(1) opacity(0.7);
+}
+.ai-badge-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: #eef2ff;
+    color: #4f46e5;
+    padding: 0px 6px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 1px solid rgba(79, 70, 229, 0.2);
+    cursor: help;
 }
 </style>

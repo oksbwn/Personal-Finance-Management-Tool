@@ -68,3 +68,31 @@ class ParsingPattern(Base):
     is_active = Column(Boolean, default=True)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class AIConfiguration(Base):
+    __tablename__ = "ai_configurations"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    provider = Column(String, default="gemini") # gemini, openai, etc.
+    model_name = Column(String, default="gemini-pro")
+    api_key = Column(String, nullable=True) # Sensitive
+    is_enabled = Column(Boolean, default=True)
+    
+    # Store prompts as a JSON string to keep it agnostic and extensible
+    # { "parsing": "...", "insights": "..." }
+    prompts_json = Column(String, nullable=True) 
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class AICallCache(Base):
+    __tablename__ = "ai_call_cache"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    content_hash = Column(String, index=True, nullable=False)
+    provider = Column(String, nullable=False)
+    model_name = Column(String, nullable=False)
+    response_json = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

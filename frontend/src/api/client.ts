@@ -123,3 +123,10 @@ export const financeApi = {
     createUser: (data: any) => apiClient.post('/auth/users', data),
     updateUser: (id: string, data: any) => apiClient.put(`/auth/users/${id}`, data),
 }
+
+export const aiApi = {
+    getSettings: () => apiClient.get('/ingestion/ai/settings'),
+    updateSettings: (data: any) => apiClient.post('/ingestion/ai/settings', data),
+    testConnection: (content: string) => apiClient.post('/ingestion/ai/test', { content }),
+    listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } })
+}

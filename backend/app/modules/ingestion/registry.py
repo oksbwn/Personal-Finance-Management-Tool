@@ -46,4 +46,10 @@ class EmailParserRegistry:
         
         # 2. Try User-Defined Patterns
         from backend.app.modules.ingestion.parsers.pattern_parser import PatternParser
-        return PatternParser.parse(db, tenant_id, combined_content, "EMAIL", date_hint)
+        res = PatternParser.parse(db, tenant_id, combined_content, "EMAIL", date_hint)
+        if res: return res
+
+        # 3. Try AI Parsing (Gemini/LLM) as final fallback
+        from backend.app.modules.ingestion.ai_service import AIService
+        print(f"[EmailParserRegistry] Falling back to AI for: {subject}")
+        return AIService.parse_with_ai(db, tenant_id, combined_content, "parsing")

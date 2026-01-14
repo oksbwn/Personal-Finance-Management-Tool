@@ -15,6 +15,7 @@ class ParsedTransaction(BaseModel):
     ref_id: Optional[str] = None
     raw_message: str
     source: str = "SMS" # SMS, EMAIL, etc.
+    is_ai_parsed: bool = False # Flag to indicate if AI was used
 
     @model_validator(mode='after')
     def generate_fallback_ref(self) -> 'ParsedTransaction':

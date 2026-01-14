@@ -1,0 +1,179 @@
+import json
+import hashlib
+from google import genai
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, Any, List
+from sqlalchemy.orm import Session
+from datetime import datetime
+from decimal import Decimal
+from backend.app.modules.ingestion import models as ingestion_models
+from backend.app.modules.ingestion.base import ParsedTransaction
+
+class AIProvider(ABC):
+    @abstractmethod
+    def parse(self, config: ingestion_models.AIConfiguration, content: str, prompt: str) -> Optional[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def list_models(self, api_key: str) -> List[Dict[str, str]]:
+        pass
+
+class GeminiProvider:
+    def parse(self, config: ingestion_models.AIConfiguration, content: str, prompt: str) -> Optional[Dict[str, Any]]:
+        if not config.api_key:
+            return None
+        
+        client = genai.Client(api_key=config.api_key)
+        model_id = config.model_name or "gemini-1.5-flash"
+        
+        full_prompt = f"{prompt}\n\nTRANSACTION MESSAGE:\n{content}\n\nRESPONSE FORMAT: Single JSON object."
+        
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=full_prompt
+            )
+            
+            if not response:
+                return None
+
+            
+            # Find JSON in response
+            text = response.text
+            
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end != 0:
+                return json.loads(text[start:end])
+        except Exception as e:
+            # Silent fail for production ingestion or log to a proper logger
+            pass
+        return None
+
+    def list_models(self, api_key: str) -> List[Dict[str, str]]:
+        try:
+            client = genai.Client(api_key=api_key)
+            models = []
+            for m in client.models.list():
+                # Only include models that support content generation
+                if 'generateContent' in m.supported_actions:
+                    # m.name usually looks like 'models/gemini-1.5-flash'
+                    # We strip 'models/' for internal consistency if needed, 
+                    # but the error message showed it expecting it.
+                    # Let's keep the full name as returned by the API list.
+                    models.append({
+                        "label": m.display_name or m.name,
+                        "value": m.name
+                    })
+            return models
+        except Exception as e:
+            print(f"[GeminiProvider] List Models Error: {e}")
+            return []
+
+class AIService:
+    _providers = {
+        "gemini": GeminiProvider()
+    }
+
+    @classmethod
+    def parse_with_ai(cls, db: Session, tenant_id: str, content: str, task: str = "parsing") -> Optional[ParsedTransaction]:
+        # 1. Get Config
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id,
+            ingestion_models.AIConfiguration.is_enabled == True
+        ).first()
+
+        if not config:
+            return None
+
+        # 2. Check Cache
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        cached = db.query(ingestion_models.AICallCache).filter(
+            ingestion_models.AICallCache.tenant_id == tenant_id,
+            ingestion_models.AICallCache.content_hash == content_hash,
+            ingestion_models.AICallCache.provider == config.provider
+        ).first()
+
+        if cached:
+            return cls._map_to_parsed(json.loads(cached.response_json), content)
+
+        # 3. Call LLM
+        provider = cls._providers.get(config.provider.lower())
+        if not provider:
+            return None
+
+        prompts = json.loads(config.prompts_json or "{}")
+        default_prompt = (
+            "Extract transaction details from the following message. "
+            "Return JSON with: amount (number), date (DD/MM/YYYY), recipient (string), account_mask (4 digits), ref_id (string or null), type (DEBIT/CREDIT)."
+        )
+        prompt = prompts.get(task, default_prompt)
+
+        result = provider.parse(config, content, prompt)
+
+        if result:
+            # 4. Store in Cache
+            new_cache = ingestion_models.AICallCache(
+                tenant_id=tenant_id,
+                content_hash=content_hash,
+                provider=config.provider,
+                model_name=config.model_name or "unknown",
+                response_json=json.dumps(result)
+            )
+            db.add(new_cache)
+            db.commit()
+            
+            return cls._map_to_parsed(result, content)
+
+        return None
+
+    @staticmethod
+    def _map_to_parsed(data: Dict[str, Any], raw_message: str) -> ParsedTransaction:
+        # Robust number parsing
+        amt = data.get("amount", 0)
+        if isinstance(amt, str):
+            amt = amt.replace(",", "")
+        
+        # Robust date parsing
+        txn_date = datetime.now()
+        date_str = data.get("date")
+        if date_str:
+            for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"]:
+                try:
+                    txn_date = datetime.strptime(date_str, fmt)
+                    break
+                except: continue
+
+        return ParsedTransaction(
+            amount=Decimal(str(amt)),
+            date=txn_date,
+            description=f"AI: {data.get('recipient', 'Unknown')}",
+            type=data.get("type", "DEBIT").upper(),
+            account_mask=str(data.get("account_mask", "XXXX"))[-4:],
+            recipient=data.get("recipient"),
+            ref_id=data.get("ref_id"),
+            raw_message=raw_message,
+            source="AI_LLM", # Or pass original source
+            is_ai_parsed=True
+        )
+
+    @classmethod
+    def list_available_models(cls, db: Session, tenant_id: str, provider_name: str, api_key_override: Optional[str] = None) -> List[Dict[str, str]]:
+        # 1. Get API Key (either from override or DB)
+        api_key = api_key_override
+        if not api_key:
+            config = db.query(ingestion_models.AIConfiguration).filter(
+                ingestion_models.AIConfiguration.tenant_id == tenant_id
+            ).first()
+            if config:
+                api_key = config.api_key
+        
+        if not api_key:
+            return []
+
+        # 2. Call Provider
+        provider = cls._providers.get(provider_name.lower())
+        if not provider:
+            return []
+            
+        return provider.list_models(api_key)
