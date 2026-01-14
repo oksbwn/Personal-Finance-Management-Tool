@@ -101,8 +101,6 @@ async function fetchAnalyticsData() {
         console.error(e)
     } finally {
         loading.value = false
-        // Auto trigger AI insights
-        generateAIInsights()
     }
 }
 
