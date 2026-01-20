@@ -26,8 +26,21 @@ class TransactionCreate(BaseModel):
     folio_number: Optional[str] = None
 
 @router.get("/search")
-def search_funds(q: str = Query(..., min_length=2)):
-    return MutualFundService.search_funds(q)
+def search_funds(
+    q: Optional[str] = Query(None, min_length=2),
+    category: Optional[str] = Query(None),
+    amc: Optional[str] = Query(None),
+    limit: int = 20,
+    offset: int = 0,
+    sort_by: str = Query('relevance')
+):
+    if not any([q, category, amc]):
+        raise HTTPException(status_code=400, detail="Search query or filter required")
+    return MutualFundService.search_funds(query=q, category=category, amc=amc, limit=limit, offset=offset, sort_by=sort_by)
+
+@router.get("/indices")
+def get_market_indices():
+    return MutualFundService.get_market_indices()
 
 @router.get("/{scheme_code}/nav")
 def get_nav(scheme_code: str):
@@ -61,6 +74,19 @@ def add_transaction(
         return {"status": "success", "order_id": order.id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/holdings/{holding_id}")
+def delete_holding(
+    holding_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        MutualFundService.delete_holding(db, str(current_user.tenant_id), holding_id)
+        return {"status": "success", "message": "Holding deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.post("/import-cas")
 def import_cas_pdf(
     file: UploadFile = File(...),
@@ -76,16 +102,64 @@ def import_cas_pdf(
             
         transactions = CASParser.parse_pdf(temp_path, password)
         
-        processed_count = 0
-        for txn in transactions:
-            # Auto-map scheme
-            results = MutualFundService.search_funds(txn['scheme_name'])
-            if results:
-                txn['scheme_code'] = results[0]['schemeCode'] # Naive match
-                MutualFundService.add_transaction(db, str(current_user.tenant_id), txn)
-                processed_count += 1
+        imported = []
+        failed = []
+        
+        # Pre-fetch funds list once to avoid N API calls
+        import httpx
+        from rapidfuzz import process, fuzz
+        
+        all_funds_cache = []
+        try:
+            print("[Import CAS] Fetching master fund list...")
+            resp = httpx.get("https://api.mfapi.in/mf")
+            if resp.status_code == 200:
+                all_funds_cache = resp.json()
+                print(f"[Import CAS] Master list fetched: {len(all_funds_cache)} schemes.")
+        except Exception as e:
+            print(f"[Import CAS] Failed to fetch master list: {e}")
+
+        # Map scheme codes for O(1) AMFI lookup
+        amfi_map = {str(f['schemeCode']): f for f in all_funds_cache}
+        scheme_names = [f['schemeName'] for f in all_funds_cache]
+
+        for i, txn in enumerate(transactions):
+            matched_scheme = None
+            failure_reason = None
+            
+            # ONLY use AMFI Code (Definitive Identifier)
+            # CAS files from CAMS/KFintech ALWAYS include AMFI codes
+            amfi_code = txn.get('amfi')
+            
+            if not amfi_code:
+                failure_reason = "AMFI code missing in CAS data"
+            elif str(amfi_code) in amfi_map:
+                matched_scheme = amfi_map[str(amfi_code)]
+            else:
+                failure_reason = f"AMFI code {amfi_code} not found in master fund list (possibly delisted/merged fund)"
+            
+            if matched_scheme:
+                txn['scheme_code'] = matched_scheme['schemeCode'] 
+                txn['mapped_name'] = matched_scheme['schemeName']
+                try:
+                    MutualFundService.add_transaction(db, str(current_user.tenant_id), txn)
+                    imported.append(txn)
+                except Exception as e:
+                    txn['error'] = f"Database error: {str(e)}"
+                    failed.append(txn)
+            else:
+                txn['error'] = failure_reason or "Unknown mapping error"
+                failed.append(txn)
                 
-        return {"status": "success", "processed": processed_count, "found": len(transactions)}
+        return {
+            "status": "success", 
+            "processed": len(imported), 
+            "total_found": len(transactions),
+            "details": {
+                "imported": imported,
+                "failed": failed
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
