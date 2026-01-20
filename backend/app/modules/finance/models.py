@@ -139,3 +139,44 @@ class RecurringTransaction(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     last_run_date = Column(DateTime, nullable=True) # To track when it last ran
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class MutualFundsMeta(Base):
+    __tablename__ = "mutual_funds_meta"
+
+    scheme_code = Column(String, primary_key=True)
+    scheme_name = Column(String, nullable=False)
+    isin_growth = Column(String, nullable=True)
+    isin_reinvest = Column(String, nullable=True)
+    fund_house = Column(String, nullable=True)
+    category = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+class MutualFundHolding(Base):
+    __tablename__ = "mutual_fund_holdings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    scheme_code = Column(String, ForeignKey("mutual_funds_meta.scheme_code"), nullable=False)
+    folio_number = Column(String, nullable=True)
+    units = Column(Numeric(15, 4), default=0)
+    average_price = Column(Numeric(15, 4), default=0)
+    current_value = Column(Numeric(15, 2), nullable=True)
+    last_nav = Column(Numeric(15, 4), nullable=True)
+    last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+class MutualFundOrder(Base):
+    __tablename__ = "mutual_fund_orders"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    holding_id = Column(String, nullable=True)
+    scheme_code = Column(String, ForeignKey("mutual_funds_meta.scheme_code"), nullable=False)
+    type = Column(String, default="BUY", nullable=False) # BUY, SELL
+    amount = Column(Numeric(15, 2), nullable=False)
+    units = Column(Numeric(15, 4), nullable=False)
+    nav = Column(Numeric(15, 4), nullable=False)
+    order_date = Column(DateTime, nullable=False)
+    status = Column(String, default="COMPLETED")
+    external_id = Column(String, nullable=True)
+    import_source = Column(String, default="MANUAL")
+    created_at = Column(DateTime, default=datetime.utcnow)
