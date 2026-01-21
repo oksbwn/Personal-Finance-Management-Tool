@@ -376,7 +376,7 @@ class MutualFundService:
                 else:
                     return {"name": idx['name'], "value": "Unavailable", "change": "0.00", "percent": "0.00%", "isUp": True}
             except Exception as e:
-                print(f"Error fetching {idx['name']}: {e}")
+                pass
                 return {"name": idx['name'], "value": "Error", "change": "0.00", "percent": "0.00%", "isUp": True}
         
         async def fetch_all():
@@ -491,11 +491,12 @@ class MutualFundService:
             
             
             try:
+                # Need at least one negative (outflow) and one positive (inflow) for XIRR
+                sum_out = sum(cf[1] for cf in cash_flows if cf[1] < 0)
                 if len(cash_flows) >= 2 and abs(sum_out) > 0.01:
                     xirr_decimal = xirr(cash_flows)
                     xirr_value = round(xirr_decimal * 100, 2)  # Convert to percentage
-            except Exception as e:
-                print(f"XIRR calculation failed: {e}")
+            except Exception:
                 xirr_value = None
         
         return {
@@ -529,7 +530,6 @@ class MutualFundService:
         
         deleted_count = query.delete()
         db.commit()
-        print(f"[Cache] Cleared {deleted_count} cache entries for tenant {tenant_id}")
         return deleted_count
     
     @staticmethod
@@ -556,7 +556,6 @@ class MutualFundService:
         ).order_by(MutualFundOrder.order_date.asc()).all()
         
         if not orders:
-            print(f"[Timeline] No orders found for tenant {tenant_id}")
             return {
                 "timeline": [],
                 "period": period,
@@ -601,14 +600,50 @@ class MutualFundService:
             for snap in cached_snapshots
         }
         
-        print(f"[Cache] Found {len(cache_dict)} cached snapshots for hash {portfolio_hash[:8]}...")
+        # Convert cached snapshots to dict for easy lookup
         
         # Generate snapshots
         timeline = []
         current_date = start_date
         
-        # NAV cache to avoid repeated API calls for same scheme_code + date
-        nav_cache = {}
+        # Bulk NAV data cache to avoid repeated API calls per scheme
+        # {scheme_code: {date_str: nav}}
+        bulk_nav_data = {}
+        
+        def get_nav_bulk(scheme_code: str):
+            if scheme_code in bulk_nav_data:
+                return bulk_nav_data[scheme_code]
+            
+            try:
+                import httpx
+                resp = httpx.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=10.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    nav_map = {entry['date']: float(entry['nav']) for entry in data.get('data', [])}
+                    bulk_nav_data[scheme_code] = nav_map
+                    return nav_map
+            except Exception as e:
+                pass
+            return {}
+
+        def find_closest_nav(nav_map, target_date):
+            if not nav_map: return 0.0
+            
+            # Try exact match first (API format is DD-MM-YYYY)
+            target_str = target_date.strftime("%d-%m-%Y")
+            if target_str in nav_map:
+                return nav_map[target_str]
+            
+            # Look back up to 7 days
+            for i in range(1, 8):
+                prev_date = target_date - timedelta(days=i)
+                prev_str = prev_date.strftime("%d-%m-%Y")
+                if prev_str in nav_map:
+                    return nav_map[prev_str]
+            
+            # Fallback to any latest available if none in range
+            # (In a real app, you might want more complex logic here)
+            return next(iter(nav_map.values())) if nav_map else 0.0
         
         
         while current_date <= end_date:
@@ -646,30 +681,22 @@ class MutualFundService:
                 
                 for scheme_code, units in holdings_snapshot.items():
                     if units > 0:
-                        # Check cache first
-                        cache_key = f"{scheme_code}_{current_date}"
-                        
-                        if cache_key in nav_cache:
-                            nav = nav_cache[cache_key]
+                        try:
+                            if scheme_code not in bulk_nav_data:
+                                get_nav_bulk(scheme_code)
+                            
+                            nav = find_closest_nav(bulk_nav_data.get(scheme_code, {}), current_date)
                             portfolio_value += units * nav
                             nav_fetched += 1
-                        else:
-                            # Fetch NAV for this date (or closest available)
-                            try:
-                                nav = MutualFundService._fetch_historical_nav(scheme_code, current_date)
-                                nav_cache[cache_key] = nav  # Cache it
-                                portfolio_value += units * nav
-                                nav_fetched += 1
-                            except Exception as e:
-                                # No print here for performance
-                                # Use current NAV as fallback
-                                holding = db.query(MutualFundHolding).filter(
-                                    MutualFundHolding.scheme_code == scheme_code,
-                                    MutualFundHolding.tenant_id == tenant_id
-                                ).first()
-                                if holding and holding.last_nav:
-                                    portfolio_value += units * float(holding.last_nav)
-                                    nav_fallback += 1
+                        except Exception as e:
+                            # Use current NAV as fallback if API/Cache fails
+                            holding = db.query(MutualFundHolding).filter(
+                                MutualFundHolding.scheme_code == scheme_code,
+                                MutualFundHolding.tenant_id == tenant_id
+                            ).first()
+                            if holding and holding.last_nav:
+                                portfolio_value += units * float(holding.last_nav)
+                                nav_fallback += 1
                 
                 
                 snapshot_data = {
@@ -718,32 +745,53 @@ class MutualFundService:
             db.rollback()
         
         # Calculate Benchmark (Nifty 50 proxy: 120716)
+        # Instead of simple normalization, we simulate actual investment timing (SIPs/Lumpsums)
         benchmark_timeline = []
         try:
             benchmark_code = "120716" # UTI Nifty 50 Index Fund
+            get_nav_bulk(benchmark_code)
+            b_nav_map = bulk_nav_data.get(benchmark_code, {})
+
+            total_benchmark_units = 0.0
+            order_idx = 0
             
-            # Use the same start/end/granularity as portfolio
-            b_current_date = timeline[0]["date"] if timeline else None
-            if b_current_date:
-                b_current_date = date.fromisoformat(b_current_date)
+            for point in timeline:
+                p_date_iso = point["date"]
+                p_date = date.fromisoformat(p_date_iso)
                 
-                # Fetch start NAV for normalization
-                start_nav = MutualFundService._fetch_historical_nav(benchmark_code, b_current_date)
-                portfolio_start_value = timeline[0]["value"]
-                
-                for point in timeline:
-                    p_date = date.fromisoformat(point["date"])
-                    p_nav = MutualFundService._fetch_historical_nav(benchmark_code, p_date)
+                # Check for any transactions UP TO this snapshot date
+                while order_idx < len(orders):
+                    order = orders[order_idx]
+                    o_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
                     
-                    # Normalized benchmark value = (p_nav / start_nav) * portfolio_start_value
-                    # This makes the benchmark start at the same point as the portfolio for fair comparison
-                    normalized_value = (p_nav / start_nav) * portfolio_start_value if start_nav > 0 else 0
-                    benchmark_timeline.append({
-                        "date": point["date"],
-                        "value": round(normalized_value, 2)
-                    })
+                    if o_date <= p_date:
+                        # Fetch index NAV on this transaction date
+                        o_nav = find_closest_nav(b_nav_map, o_date)
+                        if o_nav > 0:
+                            # Use units * nav if amount is 0 (fallback)
+                            amount = float(order.amount)
+                            if amount <= 0:
+                                amount = float(order.units) * float(order.nav)
+                                
+                            if order.type == "BUY":
+                                total_benchmark_units += (amount / o_nav)
+                            elif order.type == "SELL":
+                                # Proportionally sell benchmark units based on value ratio
+                                # We'll just sell the same equivalent cash value for simplicity
+                                total_benchmark_units -= (amount / o_nav)
+                        order_idx += 1
+                    else:
+                        break
+                
+                # Nifty 50 value today = total units * current snapshot NAV
+                p_nav = find_closest_nav(b_nav_map, p_date)
+                simulated_value = total_benchmark_units * p_nav
+                
+                benchmark_timeline.append({
+                    "date": p_date_iso,
+                    "value": round(simulated_value, 2)
+                })
         except Exception as b_err:
-            print(f"[Benchmark Error] Failed to calculate benchmark: {b_err}")
             benchmark_timeline = []
 
         return {
@@ -800,5 +848,5 @@ class MutualFundService:
             raise ValueError("No suitable NAV found")
             
         except Exception as e:
-            print(f"Error fetching historical NAV for {scheme_code}: {e}")
+            pass
             raise

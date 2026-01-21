@@ -857,13 +857,21 @@ function getSparklinePath(points: number[]): string {
                         </div>
                         <!-- Show faded chart if exists -->
                         <div v-if="performanceData?.timeline" style="opacity: 0.2; pointer-events: none;">
-                            <LineChart :data="performanceData.timeline" :height="280" />
+                            <LineChart 
+                                :data="performanceData.timeline" 
+                                :benchmark="performanceData.benchmark"
+                                :height="280" 
+                            />
                         </div>
                     </div>
                     
                     <!-- Chart (Not Loading) -->
                     <div v-else-if="performanceData?.timeline && performanceData.timeline.length > 0">
-                        <LineChart :data="performanceData.timeline" :height="280" />
+                        <LineChart 
+                            :data="performanceData.timeline" 
+                            :benchmark="performanceData.benchmark"
+                            :height="280" 
+                        />
                     </div>
                     
                     <!-- Empty State -->

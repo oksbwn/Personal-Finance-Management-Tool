@@ -54,6 +54,19 @@
                 stroke-linejoin="round"
             />
 
+            <!-- Benchmark line (smooth dotted) -->
+            <path
+                v-if="paths.benchmark"
+                :d="paths.benchmark"
+                fill="none"
+                stroke="#f59e0b"
+                stroke-width="1.5"
+                stroke-dasharray="2,3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                style="opacity: 0.6;"
+            />
+
             <!-- Data points for interaction -->
             <g class="data-points">
                 <circle
@@ -108,6 +121,10 @@
                 <div class="legend-line dashed" style="background: #94a3b8;"></div>
                 <span>Invested Amount</span>
             </div>
+            <div v-if="props.benchmark && props.benchmark.length > 0" class="legend-item">
+                <div class="legend-line dotted" style="background: #f59e0b;"></div>
+                <span>Nifty 50 (Normalized)</span>
+            </div>
         </div>
 
         <!-- Tooltip -->
@@ -125,6 +142,10 @@
                 <span>P/L:</span>
                 <strong>{{ tooltip.gain >= 0 ? '+' : '' }}{{ formatAmount(tooltip.gain) }}</strong>
             </div>
+            <div v-if="tooltip.benchmark" class="tooltip-row benchmark">
+                <span>Nifty 50:</span>
+                <strong>{{ formatAmount(tooltip.benchmark) }}</strong>
+            </div>
         </div>
     </div>
 </template>
@@ -134,6 +155,7 @@ import { ref, computed } from 'vue'
 
 const props = defineProps<{
     data: Array<{ date: string; value: number; invested: number }>
+    benchmark?: Array<{ date: string; value: number }>
     height?: number
 }>()
 
@@ -151,13 +173,22 @@ const tooltip = ref({
     date: '',
     value: 0,
     invested: 0,
-    gain: 0
+    gain: 0,
+    benchmark: 0
 })
 
 // Calculate scales
 const maxValue = computed(() => {
     if (!props.data || props.data.length === 0) return 100
-    return Math.max(...props.data.map(d => Math.max(d.value, d.invested)))
+    
+    let max = Math.max(...props.data.map(d => Math.max(d.value, d.invested)))
+    
+    if (props.benchmark && props.benchmark.length > 0) {
+        const bMax = Math.max(...props.benchmark.map(b => b.value))
+        max = Math.max(max, bMax)
+    }
+    
+    return max
 })
 
 const minValue = computed(() => 0)
@@ -205,7 +236,7 @@ const getPathData = (dataPoints: { x: number; y: number }[]) => {
 // Generate path strings
 const paths = computed(() => {
     if (!props.data || props.data.length === 0) {
-        return { value: '', invested: '' }
+        return { value: '', invested: '', area: '', benchmark: '' }
     }
 
     const valuePoints = props.data.map((d, i) => ({
@@ -228,10 +259,21 @@ const paths = computed(() => {
             ` L ${padding.left},${height - padding.bottom} Z`
     }
 
+    // Benchmark path
+    let benchmarkPath = ''
+    if (props.benchmark && props.benchmark.length > 0) {
+        const benchmarkPoints = props.benchmark.map((b, i) => ({
+            x: padding.left + xScale(i),
+            y: padding.top + yScale(b.value)
+        }))
+        benchmarkPath = getPathData(benchmarkPoints)
+    }
+
     return { 
         value: valuePath, 
         invested: getPathData(investedPoints),
-        area: areaPath
+        area: areaPath,
+        benchmark: benchmarkPath
     }
 })
 
@@ -320,7 +362,8 @@ function showTooltip(index: number, event: MouseEvent) {
         }),
         value: dataPoint.value,
         invested: dataPoint.invested,
-        gain: dataPoint.value - dataPoint.invested
+        gain: dataPoint.value - dataPoint.invested,
+        benchmark: props.benchmark ? props.benchmark[index]?.value : 0
     }
 }
 
