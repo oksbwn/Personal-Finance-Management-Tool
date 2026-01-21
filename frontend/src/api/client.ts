@@ -154,7 +154,18 @@ export const financeApi = {
     importCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
-    importCASEmail: (data: any) => apiClient.post('/finance/mutual-funds/import-cas-email', data),
+    importCASEmail: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas-email', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    previewCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/preview-cas-pdf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    previewCASEmail: (formData: FormData) => apiClient.post('/finance/mutual-funds/preview-cas-email', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    confirmImport: (transactions: any[], userId?: string) => apiClient.post('/finance/mutual-funds/confirm-import', transactions, {
+        params: { user_id: userId }
+    }),
     getNav: (schemeCode: string) => apiClient.get(`/finance/mutual-funds/${schemeCode}/nav`),
 }
 

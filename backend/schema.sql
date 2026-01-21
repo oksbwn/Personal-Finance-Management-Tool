@@ -182,6 +182,7 @@ CREATE TABLE email_configurations (
 	is_active BOOLEAN DEFAULT TRUE, 
 	auto_sync_enabled BOOLEAN DEFAULT FALSE, 
 	last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
+	cas_last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)

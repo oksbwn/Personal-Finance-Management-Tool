@@ -9,6 +9,7 @@ class EmailConfiguration(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Link to family member
     email = Column(String, nullable=False)
     # Note: In a real app, encrypt this. For now, storing as-is.
     password = Column(String, nullable=False) 
@@ -16,7 +17,8 @@ class EmailConfiguration(Base):
     folder = Column(String, default="INBOX", nullable=False)
     is_active = Column(Boolean, default=True)
     auto_sync_enabled = Column(Boolean, default=False)
-    last_sync_at = Column(DateTime, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True) # General expense sync
+    cas_last_sync_at = Column(DateTime, nullable=True) # Mutual fund CAS sync
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class EmailSyncLog(Base):

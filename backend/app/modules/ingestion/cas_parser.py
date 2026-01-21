@@ -6,6 +6,7 @@ import tempfile
 import imaplib
 import email
 from email.header import decode_header
+import httpx
 from sqlalchemy.orm import Session
 from backend.app.modules.finance.services.mutual_funds import MutualFundService
 
@@ -166,92 +167,63 @@ class CASParser:
         return []
 
     @staticmethod
-    def find_and_process_cas_emails(
-        db: Session, 
-        tenant_id: str,
-        email_config: object, # SQLAlchemy object
-        password: str,
-        user_id: str = None
-    ):
+    def scan_cas_emails(
+        email_config: object, 
+        password: str
+    ) -> List[Dict[str, Any]]:
         """
-        Connects to email, searches for CAS emails, downloads attachment, parses, and ingests.
+        Scan emails for CAS, parse PDFs, and return a flattened list of all raw transactions.
+        Does NOT ingest into DB. Mapping and ingestion happen in MutualFundService.
         """
-        stats = {"found": 0, "processed": 0, "errors": []}
+        all_found_transactions = []
         
         try:
-            # 1. Connect IMAP
             mail = imaplib.IMAP4_SSL(email_config.imap_server)
             mail.login(email_config.email, email_config.password)
             mail.select(email_config.folder)
             
-            # 2. Search for CAS
-            # Criteria: Subject "Consolidated Account Statement" OR From "camsonline"
             search_query = '(OR (SUBJECT "Consolidated Account Statement") (FROM "camsonline"))'
+            if email_config.cas_last_sync_at:
+                imap_date = email_config.cas_last_sync_at.strftime("%d-%b-%Y")
+                search_query = f'({search_query} SINCE {imap_date})'
+                
             status, messages = mail.search(None, search_query)
-            
             if status != "OK":
-                return stats
+                return []
                 
             email_ids = messages[0].split()
-            stats["found"] = len(email_ids)
-            print(f"[CASParser] Found {len(email_ids)} CAS emails.")
+            print(f"[CASParser] Found {len(email_ids)} CAS emails to scan.")
 
             for e_id in email_ids:
-                # Fetch latest first? email_ids are usually chronological.
-                # Let's just process the last one for now? Or all? 
-                # For "Sync", maybe process all.
-                
-                _, msg_data = mail.fetch(e_id, "(RFC822)")
+                _, msg_data = mail.fetch(e_id, "(BODY.PEEK[])")
                 raw_email = msg_data[0][1]
                 msg = email.message_from_bytes(raw_email)
                 
-                # Check attachments
                 for part in msg.walk():
-                    if part.get_content_maintype() == 'multipart':
-                        continue
-                    if part.get('Content-Disposition') is None:
+                    if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None:
                         continue
                         
                     filename = part.get_filename()
                     if filename and filename.lower().endswith('.pdf'):
-                        # Found PDF
-                        print(f"[CASParser] Found PDF: {filename}")
-                        
+                        print(f"[CASParser] Scanning PDF from email: {filename}")
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
                             f.write(part.get_payload(decode=True))
                             temp_path = f.name
                             
                         try:
-                            # Parse
                             transactions = CASParser.parse_pdf(temp_path, password)
-                            print(f"[CASParser] Extracted {len(transactions)} transactions.")
-                            
-                            # Ingest
-                            for txn in transactions:
-                                # 1. Resolve Scheme Code from Name using simple search
-                                results = MutualFundService.search_funds(txn['scheme_name'])
-                                if results:
-                                    best_match = results[0] # Naive
-                                    txn['scheme_code'] = best_match['schemeCode']
-                                    if user_id:
-                                        txn['user_id'] = user_id
-                                    
-                                    MutualFundService.add_transaction(db, tenant_id, txn)
-                                    stats["processed"] += 1
-                                else:
-                                    print(f"Could not map scheme: {txn['scheme_name']}")
-                                    
+                            all_found_transactions.extend(transactions)
                         except Exception as parse_err:
-                            stats["errors"].append(str(parse_err))
-                            print(f"[CASParser] Parse error: {parse_err}")
+                            print(f"[CASParser] Parse error for {filename}: {parse_err}")
                         finally:
-                            os.remove(temp_path)
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
 
             mail.close()
             mail.logout()
             
         except Exception as e:
-            stats["errors"].append(str(e))
-            print(f"[CASParser] connection error: {e}")
+            print(f"[CASParser] Connection error: {e}")
+            raise e
             
-        return stats
+        return all_found_transactions

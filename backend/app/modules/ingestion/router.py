@@ -63,6 +63,7 @@ class EmailConfigCreate(BaseModel):
     imap_server: str = "imap.gmail.com"
     folder: str = "INBOX"
     auto_sync_enabled: bool = False
+    user_id: Optional[str] = None
 
 class EmailConfigUpdate(BaseModel):
     email: Optional[str] = None
@@ -70,6 +71,7 @@ class EmailConfigUpdate(BaseModel):
     imap_server: Optional[str] = None
     folder: Optional[str] = None
     auto_sync_enabled: Optional[bool] = None
+    user_id: Optional[str] = None
     reset_sync_history: Optional[bool] = False
     last_sync_at: Optional[datetime] = None
 
@@ -200,6 +202,7 @@ def update_email_config(
     if payload.password is not None: config.password = payload.password
     if payload.imap_server is not None: config.imap_server = payload.imap_server
     if payload.folder is not None: config.folder = payload.folder
+    if payload.user_id is not None: config.user_id = payload.user_id
 
     if payload.auto_sync_enabled is not None: config.auto_sync_enabled = payload.auto_sync_enabled
     if payload.reset_sync_history:

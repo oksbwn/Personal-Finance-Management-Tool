@@ -385,17 +385,24 @@ const emailForm = ref({
     password: '',
     host: 'imap.gmail.com',
     folder: 'INBOX',
-    auto_sync: false
+    auto_sync: false,
+    user_id: null as string | null,
+    last_sync_at: '' as string // For custom date/time setting
 })
 
 async function saveEmailConfig() {
     try {
-        const payload = {
+        const payload: any = {
             email: emailForm.value.email,
             password: emailForm.value.password,
             imap_server: emailForm.value.host,
             folder: emailForm.value.folder,
-            auto_sync_enabled: emailForm.value.auto_sync
+            auto_sync_enabled: emailForm.value.auto_sync,
+            user_id: emailForm.value.user_id
+        }
+
+        if (emailForm.value.last_sync_at) {
+            payload.last_sync_at = new Date(emailForm.value.last_sync_at).toISOString()
         }
 
         if (editingEmailConfig.value) {
@@ -408,7 +415,7 @@ async function saveEmailConfig() {
         
         showEmailModal.value = false
         showEmailEditModal.value = false
-        emailForm.value = { email: '', password: '', host: 'imap.gmail.com', folder: 'INBOX', auto_sync: false }
+        emailForm.value = { email: '', password: '', host: 'imap.gmail.com', folder: 'INBOX', auto_sync: false, user_id: null, last_sync_at: '' }
         fetchData()
     } catch (e) {
         notify.error("Failed to save email config")
@@ -422,7 +429,9 @@ function openEditEmailModal(config: any) {
         password: config.password, 
         host: config.imap_server, 
         folder: config.folder,
-        auto_sync: config.auto_sync_enabled || false
+        auto_sync: config.auto_sync_enabled || false,
+        user_id: config.user_id || null,
+        last_sync_at: config.last_sync_at ? new Date(config.last_sync_at).toISOString().slice(0, 16) : ''
     }
     editingEmailConfig.value = config.id
     showEmailModal.value = true
@@ -1006,51 +1015,141 @@ async function handleMemberSubmit() {
 
 
 
-                <!-- EMAILS TAB -->
+                <!-- EMAILS TAB - PREMIUM REDESIGN -->
                 <div v-if="activeTab === 'emails'" class="tab-content animate-in">
-                <div v-if="syncStatus && syncStatus.status !== 'running'" :class="['global-sync-alert', syncStatus.status]">
-                    <div class="alert-content">
-                        {{ syncStatus.status === 'completed' ? '✅ Sync successful' : '❌ Sync failed' }}: 
-                        {{ syncStatus.message || `${syncStatus.stats?.processed} transactions ingested.` }}
+                <div v-if="syncStatus && syncStatus.status !== 'running'" :class="['sync-alert-premium', syncStatus.status]">
+                    <div class="alert-icon">
+                        {{ syncStatus.status === 'completed' ? '✅' : '❌' }}
                     </div>
-                    <button @click="syncStatus = null" class="btn-close-alert">✕</button>
+                    <div class="alert-body">
+                        <strong>{{ syncStatus.status === 'completed' ? 'Sync Complete' : 'Sync Failed' }}</strong>
+                        <p>{{ syncStatus.message || `${syncStatus.stats?.processed} transactions processed.` }}</p>
+                    </div>
+                    <button @click="syncStatus = null" class="alert-close">✕</button>
                 </div>
 
-                <div class="settings-grid">
-                    <div v-for="config in emailConfigs" :key="config.id" class="glass-card email-config">
-                        <div class="card-top">
-                            <div class="card-main">
-                                <div class="card-type-header">
-                                    <span class="type-dot" :class="config.is_active ? 'green' : 'gray'"></span>
-                                    <span class="card-label">{{ config.imap_server }}</span>
-                                    <span v-if="config.auto_sync_enabled" class="badge-mini ml-2">Auto-Sync</span>
+                <div class="email-grid">
+                    <div v-for="config in emailConfigs" :key="config.id" class="email-card-premium">
+                        <!-- Status Indicator Stripe -->
+                        <div class="status-stripe" :class="{
+                            'active': config.is_active,
+                            'inactive': !config.is_active,
+                            'auto-sync': config.auto_sync_enabled
+                        }"></div>
+
+                        <!-- Card Header -->
+                        <div class="email-card-header">
+                            <div class="email-info">
+                                <div class="email-status-row">
+                                    <div class="pulse-dot" :class="config.is_active ? 'active' : 'inactive'"></div>
+                                    <span class="server-label">{{ config.imap_server }}</span>
+                                    <span v-if="config.auto_sync_enabled" class="auto-sync-badge">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                        </svg>
+                                        Auto
+                                    </span>
                                 </div>
-                                <h3 class="card-name">{{ config.email }}</h3>
+                                <h3 class="email-address">{{ config.email }}</h3>
                             </div>
-                            <div class="card-actions-row">
-                                <button @click="openHistoryModal(config)" class="btn-icon-circle" title="View Sync History">📜</button>
-                                <button @click="openEditEmailModal(config)" class="btn-icon-circle" title="Edit Configuration">✏️</button>
+                            <div class="header-actions">
+                                <button @click="openHistoryModal(config)" class="icon-btn-premium" title="Sync History">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                </button>
+                                <button @click="openEditEmailModal(config)" class="icon-btn-premium" title="Edit Config">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                </button>
                             </div>
                         </div>
-                        <div class="card-bottom">
-                            <span class="card-balance">{{ config.folder }}</span>
-                            <!-- Loading State for specific card -->
-                            <span v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'" class="sync-spinner">🔄 Syncing...</span>
-                            <span v-else-if="config.last_sync_at" class="card-meta">
-                                Synced: {{ formatDate(config.last_sync_at).day }} {{ formatDate(config.last_sync_at).meta }}
+
+                        <!-- User Assignment Section -->
+                        <div class="user-assignment-section">
+                            <div v-if="config.user_id" class="assigned-user">
+                                <div class="user-avatar-ring">
+                                    <span class="user-avatar">
+                                        {{ familyMembers.find(u => u.id === config.user_id)?.avatar || '👤' }}
+                                    </span>
+                                </div>
+                                <div class="user-details">
+                                    <span class="user-name">{{ familyMembers.find(u => u.id === config.user_id)?.full_name || 'Unknown User' }}</span>
+                                    <span class="user-label">Inbox Owner</span>
+                                </div>
+                            </div>
+                            <div v-else class="unassigned-state">
+                                <div class="unassigned-icon">👥</div>
+                                <div class="unassigned-text">
+                                    <span class="unassigned-label">Unassigned</span>
+                                    <span class="unassigned-hint">Click edit to assign</span>
+                                </div>
+                            </div>
+                            <div class="folder-tag">{{ config.folder }}</div>
+                        </div>
+
+                        <!-- Sync Status Timeline -->
+                        <div class="sync-timeline">
+                            <div v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'" class="syncing-state">
+                                <div class="sync-spinner"></div>
+                                <span class="sync-text">Scanning inbox...</span>
+                            </div>
+                            <div v-else-if="config.last_sync_at" class="last-sync">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="sync-icon">
+                                    <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <span>Last synced {{ formatDate(config.last_sync_at).day }}</span>
+                            </div>
+                            <div v-else class="never-synced">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="warn-icon">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/>
+                                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                <span>Never synced</span>
+                            </div>
+                        </div>
+
+                        <!-- Primary Action -->
+                        <button 
+                            @click="handleSync(config.id)" 
+                            class="sync-btn-premium" 
+                            :disabled="syncStatus && syncStatus.status === 'running'"
+                            :class="{ 'syncing': syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running' }"
+                        >
+                            <div class="btn-glow-effect"></div>
+                            <span v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'">
+                                <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                </svg>
+                                Syncing...
                             </span>
-                            <span v-else class="card-meta">Never synced</span>
-                        </div>
-                        <div class="card-actions">
-                            <button @click="handleSync(config.id)" class="btn-verify width-full" :disabled="syncStatus && syncStatus.status === 'running'">
-                                {{ (syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running') ? 'Syncing...' : 'Sync Now' }}
-                            </button>
-                        </div>
+                            <span v-else>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                </svg>
+                                Sync Now
+                            </span>
+                        </button>
                     </div>
 
-                    <div v-if="emailConfigs.length === 0" class="empty-card" @click="showEmailModal = true">
-                        <span class="empty-plus">+</span>
-                        <p>Link a bank email account</p>
+                    <div v-if="emailConfigs.length === 0" class="empty-email-state">
+                        <div class="empty-icon">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <h3>No Email Accounts Linked</h3>
+                        <p>Connect your bank email to automatically sync transactions</p>
+                        <button @click="showEmailModal = true" class="empty-cta">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            Add Email Account
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1393,64 +1492,182 @@ async function handleMemberSubmit() {
             </div>
         </div>
 
-        <!-- Email Config Modal -->
-        <div v-if="showEmailModal" class="modal-overlay-global">
-            <div class="modal-global glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ editingEmailConfig ? 'Edit Email Config' : 'Link Email Account' }}</h2>
-                    <button class="btn-icon-circle" @click="showEmailModal = false">✕</button>
+        <!-- Email Config Modal - PREMIUM REDESIGN -->
+        <div v-if="showEmailModal" class="modal-overlay-global" @click.self="showEmailModal = false">
+            <div class="email-modal-premium">
+                <!-- Modal Header -->
+                <div class="email-modal-header">
+                    <div class="header-icon-wrapper">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <div class="header-text">
+                        <h2 class="email-modal-title">{{ editingEmailConfig ? 'Edit Email Configuration' : 'Connect Email Account' }}</h2>
+                        <p class="email-modal-subtitle">{{ editingEmailConfig ? 'Update your email sync settings' : 'Link your bank email for automatic transaction imports' }}</p>
+                    </div>
+                    <button class="email-modal-close" @click="showEmailModal = false">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
                 </div>
                 
-                <form @submit.prevent="saveEmailConfig" class="form-compact">
-                    <div class="form-group">
-                        <label class="form-label">Email Address</label>
-                        <input v-model="emailForm.email" class="form-input" required placeholder="name@gmail.com" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Gmail App Password</label>
-                        <input type="password" v-model="emailForm.password" class="form-input" required placeholder="•••• •••• •••• ••••" />
-                        <div class="info-note mt-2">
-                            ℹ️ Use a generated <strong>App Password</strong>, not your main Google login.
+                <form @submit.prevent="saveEmailConfig" class="email-modal-form">
+                    <!-- Connection Details Section -->
+                    <div class="modal-section">
+                        <div class="section-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 12h-8m8 0a9 9 0 11-18 0 9 9 0 0118 0zM8 12V8l4-4 4 4v4"/>
+                            </svg>
+                            <h3>Connection Details</h3>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">IMAP Server</label>
-                        <input v-model="emailForm.host" class="form-input" required placeholder="imap.gmail.com" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">IMAP Folder</label>
-                        <input v-model="emailForm.folder" class="form-input" placeholder="INBOX" />
+                        
+                        <div class="form-grid grid-2">
+                            <div class="form-field">
+                                <label>Email Address</label>
+                                <div class="input-with-icon">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
+                                    </svg>
+                                    <input v-model="emailForm.email" class="premium-input" required placeholder="name@gmail.com" />
+                                </div>
+                            </div>
+                            
+                            <div class="form-field">
+                                <label>App Password</label>
+                                <div class="input-with-icon">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+                                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                        <path d="M7 11V7a5 5 0 0110 0v4"/>
+                                    </svg>
+                                    <input type="password" v-model="emailForm.password" class="premium-input" required placeholder="•••• •••• •••• ••••" />
+                                </div>
+                            </div>
+
+                            <div class="form-field">
+                                <label>IMAP Server</label>
+                                <input v-model="emailForm.host" class="premium-input" required placeholder="imap.gmail.com" />
+                            </div>
+                            
+                            <div class="form-field">
+                                <label>Folder</label>
+                                <input v-model="emailForm.folder" class="premium-input" placeholder="INBOX" />
+                            </div>
+                        </div>
+
+                        <div class="field-hint">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="16" x2="12" y2="12"/>
+                                <line x1="12" y1="8" x2="12.01" y2="8"/>
+                            </svg>
+                            Use a generated <strong>App Password</strong>, not your main password.
+                        </div>
                     </div>
 
-                    <div class="setting-toggle-row">
-                        <div class="toggle-label">
-                            <span class="font-medium">Auto-Sync</span>
-                            <span class="text-xs text-muted">Check for emails every 15 mins</span>
+                    <!-- Assignment Section -->
+                    <div class="modal-section">
+                        <div class="section-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                            <h3>Ownership & Automation</h3>
                         </div>
-                        <label class="switch">
-                            <input type="checkbox" v-model="emailForm.auto_sync">
-                            <span class="slider round"></span>
-                        </label>
+                        
+                        <div class="form-grid grid-2">
+                            <div class="form-field">
+                                <label>Assign to Family Member</label>
+                                <CustomSelect 
+                                    v-model="emailForm.user_id as any" 
+                                    :options="[
+                                        { label: '👤 Unassigned (Self)', value: null as any },
+                                        ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                                    ]"
+                                    placeholder="Select inbox owner"
+                                />
+                            </div>
+
+                            <div class="toggle-field-premium">
+                                <div class="toggle-content">
+                                    <div class="toggle-icon-wrapper active">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                        </svg>
+                                    </div>
+                                    <div class="toggle-info">
+                                        <span class="toggle-title">Auto Sync</span>
+                                    </div>
+                                </div>
+                                <label class="switch-premium">
+                                    <input type="checkbox" v-model="emailForm.auto_sync">
+                                    <span class="slider-premium"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="field-hint">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            Imported transactions will automatically assign to the owner. Syncs every 15 mins.
+                        </div>
                     </div>
-                    
-                    <div class="modal-footer flex-between">
-                        <button type="button" @click="deleteEmailConfig(editingEmailConfig)" v-if="editingEmailConfig" class="btn-text-danger">
-                            🗑 Remove
+
+                    <!-- Advanced Actions (Edit Mode Only) -->
+                    <div v-if="editingEmailConfig" class="advanced-actions-section">
+                        <div class="advanced-actions-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="1"/>
+                                <circle cx="12" cy="5" r="1"/>
+                                <circle cx="12" cy="19" r="1"/>
+                            </svg>
+                            <span>Advanced & History Controls</span>
+                        </div>
+                        
+                        <div class="form-grid grid-2 mb-2">
+                            <div class="form-field">
+                                <label>Custom Sync Point</label>
+                                <input type="datetime-local" v-model="emailForm.last_sync_at" class="premium-input" style="height: 40px;" />
+                            </div>
+                            <div class="advanced-actions-buttons" style="align-self: flex-end; gap: 0.5rem;">
+                                <button type="button" @click="rewindSync(3)" class="btn-advanced" style="height: 40px; flex: 1;" title="Rescan last 3 hours">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="1 4 1 10 7 10"/>
+                                        <path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+                                    </svg>
+                                    Rewind 3h
+                                </button>
+                                <button type="button" @click="resetSyncHistory" class="btn-advanced" style="height: 40px; flex: 1;" title="Reset all history tracking">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                        <path d="M12 7v5l3 3"/>
+                                    </svg>
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div class="email-modal-footer">
+                        <button v-if="editingEmailConfig" type="button" @click="deleteEmailConfig(editingEmailConfig)" class="btn-advanced danger mr-auto">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                            </svg>
+                            Remove Configuration
                         </button>
-                        <div style="display: flex; gap: 0.5rem; margin-left: 0.5rem; align-items: center;">
-                            <button type="button" @click="rewindSync(3)" v-if="editingEmailConfig" class="btn-text-warning" style="font-size: 0.8rem; border:none; background:rgba(245, 158, 11, 0.1); padding: 4px 8px; border-radius: 4px; cursor:pointer;" title="Rescan last 3 hours">
-                                ⏪ Rewind 3h
-                            </button>
-                            <button type="button" @click="resetSyncHistory" v-if="editingEmailConfig" class="btn-text-danger" style="font-size: 0.8rem; border:none; background:none; cursor:pointer;" title="Force deep scan of ALL history">
-                                🔄 Full Reset
-                            </button>
-                        </div>
-                        <div style="display: flex; gap: 1rem; margin-left: auto;">
-                            <button type="button" @click="showEmailModal = false" class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">
-                                {{ editingEmailConfig ? 'Update Config' : 'Connect Account' }}
-                            </button>
-                        </div>
+                        <button type="button" @click="showEmailModal = false" class="btn-secondary-premium">Cancel</button>
+                        <button type="submit" class="btn-primary-premium">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            {{ editingEmailConfig ? 'Update Configuration' : 'Connect Account' }}
+                        </button>
                     </div>
                 </form>
             </div>
@@ -2830,5 +3047,960 @@ input:checked + .slider-premium:before { transform: translateX(24px); }
     box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
 }
 .ai-btn-primary:hover { transform: translateY(-1px); background: #4338ca; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+
+/* ==================== PREMIUM EMAIL CARDS ==================== */
+.email-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 1.5rem;
+}
+
+.email-card-premium {
+    position: relative;
+    background: white;
+    border-radius: 1.25rem;
+    padding: 1.5rem;
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+}
+
+.email-card-premium:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+/* Status Stripe */
+.status-stripe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #10b981, #34d399);
+    opacity: 0.8;
+}
+
+.status-stripe.inactive {
+    background: linear-gradient(90deg, #9ca3af, #d1d5db);
+    opacity: 0.5;
+}
+
+.status-stripe.auto-sync {
+    background: linear-gradient(90deg, #6366f1, #818cf8, #6366f1);
+    background-size: 200% 100%;
+    animation: gradient-slide 3s ease infinite;
+}
+
+@keyframes gradient-slide {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+
+/* Card Header */
+.email-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.25rem;
+}
+
+.email-info {
+    flex: 1;
+}
+
+.email-status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    position: relative;
+}
+
+.pulse-dot.active {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.pulse-dot.active::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border-radius: 50%;
+    border: 2px solid #10b981;
+    animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .7; }
+}
+
+@keyframes pulse-ring {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(1.4); opacity: 0; }
+}
+
+.pulse-dot.inactive {
+    background: #9ca3af;
+}
+
+.server-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.auto-sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 600;
+    border-radius: 0.375rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.email-address {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.icon-btn-premium {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e5e7eb;
+    background: white;
+    border-radius: 0.625rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #6b7280;
+}
+
+.icon-btn-premium:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+    color: #111827;
+    transform: translateY(-1px);
+}
+
+/* User Assignment Section */
+.user-assignment-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+    border-radius: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+.assigned-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+}
+
+.user-avatar-ring {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, #6366f1, #818cf8);
+    border-radius: 50%;
+    padding: 3px;
+}
+
+.user-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: white;
+    border-radius: 50%;
+    font-size: 1.25rem;
+}
+
+.user-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.user-label {
+    font-size: 0.7rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.unassigned-state {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+}
+
+.unassigned-icon {
+    width: 40px;
+    height: 40px;
+    background: #f3f4f6;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    opacity: 0.6;
+}
+
+.unassigned-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.unassigned-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #9ca3af;
+}
+
+.unassigned-hint {
+    font-size: 0.7rem;
+    color: #9ca3af;
+}
+
+.folder-tag {
+    padding: 0.375rem 0.75rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6b7280;
+}
+
+/* Sync Timeline */
+.sync-timeline {
+    padding: 0.75rem 0;
+    margin-bottom: 1rem;
+    border-top: 1px solid #f3f4f6;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.syncing-state, .last-sync, .never-synced {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.sync-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #e5e7eb;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.sync-text {
+    color: #6366f1;
+    font-weight: 500;
+}
+
+.last-sync {
+    color: #6b7280;
+}
+
+.sync-icon {
+    color: #10b981;
+}
+
+.never-synced {
+    color: #f59e0b;
+}
+
+.warn-icon {
+    color: #f59e0b;
+}
+
+/* Primary Sync Button */
+.sync-btn-premium {
+    width: 100%;
+    position: relative;
+    padding: 0.875rem 1.5rem;
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.sync-btn-premium:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
+}
+
+.sync-btn-premium:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sync-btn-premium.syncing {
+    background: linear-gradient(90deg, #6366f1, #818cf8, #6366f1);
+    background-size: 200% 100%;
+    animation: gradient-slide 2s ease infinite;
+}
+
+.btn-glow-effect {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+
+.sync-btn-premium:hover:not(:disabled) .btn-glow-effect {
+    opacity: 1;
+}
+
+.btn-spinner {
+    animation: spin 1s linear infinite;
+}
+
+/* Sync Alert Premium */
+.sync-alert-premium {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: 1rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid;
+}
+
+.sync-alert-premium.completed {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border-left-color: #10b981;
+}
+
+.sync-alert-premium.error {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border-left-color: #ef4444;
+}
+
+.alert-icon {
+    font-size: 1.5rem;
+}
+
+.alert-body {
+    flex: 1;
+}
+
+.alert-body strong {
+    display: block;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 0.25rem;
+}
+
+.alert-body p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.alert-close {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.05);
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #6b7280;
+    font-size: 1.125rem;
+}
+
+.alert-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+/* Empty State */
+.empty-email-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.empty-icon {
+    margin-bottom: 1.5rem;
+    color: #d1d5db;
+}
+
+.empty-email-state h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 0.5rem 0;
+}
+
+.empty-email-state p {
+    font-size: 0.9375rem;
+    color: #6b7280;
+    margin: 0 0 2rem 0;
+    max-width: 400px;
+}
+
+.empty-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.75rem;
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.empty-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
+}
+
+/* ==================== PREMIUM EMAIL MODAL - CLEAN LIGHT THEME ==================== */
+.email-modal-premium {
+    background: #ffffff;
+    border-radius: 1rem;
+    max-width: 800px;
+    width: 95%;
+    max-height: 98vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
+}
+
+.email-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #f1f5f9;
+    background: #ffffff;
+}
+
+.header-icon-wrapper {
+    width: 36px;
+    height: 36px;
+    background: #6366f1;
+    border-radius: 0.625rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+}
+
+.header-text {
+    flex: 1;
+}
+
+.email-modal-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #111827;
+    margin: 0;
+    letter-spacing: -0.025em;
+    position: relative;
+    z-index: 1;
+}
+
+.email-modal-subtitle {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.email-modal-close {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: #6b7280;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.email-modal-close:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.2);
+    color: #dc2626;
+    transform: rotate(90deg);
+}
+
+.email-modal-form {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 1.25rem;
+    background: #ffffff;
+}
+
+.email-modal-form::-webkit-scrollbar {
+    width: 6px;
+}
+
+.email-modal-form::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+}
+
+.modal-section {
+    margin-bottom: 0.875rem;
+}
+
+.modal-section:last-child {
+    margin-bottom: 0;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.section-header svg {
+    color: #6366f1;
+}
+
+.section-header h3 {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #475569;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.form-grid {
+    display: grid;
+    gap: 0.625rem;
+}
+
+.form-grid.grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.form-field label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #4b5563;
+    margin-left: 0.25rem;
+}
+
+.input-with-icon {
+    position: relative;
+}
+
+.input-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.input-with-icon .premium-input {
+    padding-left: 2.75rem;
+}
+
+.premium-input {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1.5px solid #e5e7eb;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    color: #111827;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.premium-input:focus {
+    outline: none;
+    background: white;
+    border-color: #6366f1;
+    box-shadow: 
+        0 0 0 4px rgba(99, 102, 241, 0.1),
+        0 4px 12px -2px rgba(0, 0, 0, 0.05);
+}
+
+.premium-input::placeholder {
+    color: #9ca3af;
+}
+
+.field-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: #64748b;
+    line-height: 1.4;
+    padding: 0.5rem 0.75rem;
+    background: #f8fafc;
+    border-radius: 0.625rem;
+    border: 1px solid #f1f5f9;
+    margin-top: 0.125rem;
+}
+
+.field-hint svg {
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+    color: #6366f1;
+}
+
+.field-hint strong {
+    color: #374151;
+}
+
+.toggle-field-premium {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 1rem;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 0.875rem;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    margin-top: 0;
+    align-self: flex-end;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggle-field-premium:hover {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.toggle-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.toggle-icon-wrapper {
+    width: 32px;
+    height: 32px;
+    background: white;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e5e7eb;
+    color: #6b7280;
+    transition: all 0.3s;
+}
+
+.toggle-icon-wrapper.active {
+    background: rgba(99, 102, 241, 0.05);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: #6366f1;
+}
+
+.toggle-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.toggle-title {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.toggle-description {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.switch-premium {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+}
+
+.switch-premium input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-premium .slider-premium {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #e5e7eb;
+    transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 34px;
+}
+
+.switch-premium .slider-premium:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.switch-premium input:checked + .slider-premium {
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+}
+
+.switch-premium input:checked + .slider-premium:before {
+    transform: translateX(22px);
+    background-color: #ffffff;
+}
+.advanced-actions-section {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.premium-input.compact {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+}
+
+.mr-auto {
+    margin-right: auto;
+}
+
+.mb-3 {
+    margin-bottom: 0.75rem;
+}
+
+.advanced-actions-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    color: #6b7280;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.advanced-actions-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.btn-advanced {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    height: 40px; /* Reduced to standard 40px */
+    padding: 0 1rem;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-advanced:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #1e293b;
+}
+
+.btn-advanced.danger {
+    color: #ef4444;
+    border-color: #fee2e2;
+    background: #fef2f2;
+}
+
+.btn-advanced.danger:hover {
+    background: #fee2e2;
+    border-color: #fecaca;
+}
+
+.email-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 0.875rem 1.5rem;
+    margin-top: 1rem;
+    border-top: 1px solid #f1f5f9;
+    background: #f8fafc;
+}
+
+.btn-secondary-premium {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px; /* Reduced to standard 40px */
+    padding: 0 1.25rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary-premium:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+.btn-primary-premium {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px; /* Reduced to standard 40px */
+    padding: 0 1.5rem;
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px rgba(99, 102, 241, 0.1);
+}
+
+.btn-primary-premium:hover {
+    background: #4f46e5;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
+}
+
+/* Animations */
+.animate-in {
+    animation: modalSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalSlideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.form-field {
+    animation: fadeIn 0.4s ease-out forwards;
+    opacity: 0;
+}
+
+@keyframes fadeIn {
+    to { opacity: 1; }
+}
+
+/* Stagger targets */
+.form-field:nth-child(1) { animation-delay: 0.1s; }
+.form-field:nth-child(2) { animation-delay: 0.15s; }
+.form-field:nth-child(3) { animation-delay: 0.2s; }
+.form-field:nth-child(4) { animation-delay: 0.25s; }
+.modal-section:nth-child(2) .form-field:nth-child(1) { animation-delay: 0.3s; }
+.modal-section:nth-child(2) .toggle-field-premium { animation-delay: 0.35s; }
+
 
 </style>
