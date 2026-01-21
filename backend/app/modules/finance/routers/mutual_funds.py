@@ -57,10 +57,11 @@ def get_nav(scheme_code: str):
 
 @router.get("/portfolio")
 def get_portfolio(
+    user_id: Optional[str] = Query(None),
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return MutualFundService.get_portfolio(db, str(current_user.tenant_id))
+    return MutualFundService.get_portfolio(db, str(current_user.tenant_id), user_id)
 
 @router.get("/analytics")
 def get_analytics(
@@ -171,6 +172,29 @@ def cleanup_duplicate_orders(
     
     return {"message": f"Removed {removed_count} duplicate orders and synchronized {len(holdings)} holdings"}
 
+@router.get("/holdings/{holding_id}")
+def get_holding_details(
+    holding_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    details = MutualFundService.get_holding_details(db, str(current_user.tenant_id), holding_id)
+    if not details:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    return details
+
+@router.patch("/holdings/{holding_id}")
+def update_holding(
+    holding_id: str,
+    payload: dict,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    holding = MutualFundService.update_holding(db, str(current_user.tenant_id), holding_id, payload)
+    if not holding:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    return {"status": "success", "message": "Holding updated"}
+
 @router.post("/transaction")
 def add_transaction(
     payload: TransactionCreate,
@@ -179,6 +203,10 @@ def add_transaction(
 ):
     try:
         data = payload.dict()
+        # Default attribution to the user who added it
+        if "user_id" not in data or not data["user_id"]:
+            data["user_id"] = current_user.id
+            
         order = MutualFundService.add_transaction(db, str(current_user.tenant_id), data)
         return {"status": "success", "order_id": order.id}
     except Exception as e:
@@ -200,6 +228,7 @@ def delete_holding(
 def import_cas_pdf(
     file: UploadFile = File(...),
     password: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -250,6 +279,7 @@ def import_cas_pdf(
             if matched_scheme:
                 txn['scheme_code'] = matched_scheme['schemeCode'] 
                 txn['mapped_name'] = matched_scheme['schemeName']
+                txn['user_id'] = user_id if user_id else current_user.id
                 try:
                     MutualFundService.add_transaction(db, str(current_user.tenant_id), txn)
                     imported.append(txn)
@@ -279,6 +309,7 @@ def import_cas_pdf(
 def trigger_cas_email_import(
     password: str = Form(...),
     email_config_id: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -293,5 +324,5 @@ def trigger_cas_email_import(
     if not config:
         raise HTTPException(status_code=404, detail="No email configuration found")
         
-    stats = CASParser.find_and_process_cas_emails(db, str(current_user.tenant_id), config, password)
+    stats = CASParser.find_and_process_cas_emails(db, str(current_user.tenant_id), config, password, user_id)
     return {"status": "completed", "stats": stats}

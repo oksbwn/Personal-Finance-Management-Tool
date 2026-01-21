@@ -141,7 +141,9 @@ export const financeApi = {
         apiClient.get('/finance/mutual-funds/search', { params: { q: query, category, amc, limit, offset, sort_by: sortBy } }),
 
     getMarketIndices: () => apiClient.get('/finance/mutual-funds/indices'),
-    getPortfolio: () => apiClient.get('/finance/mutual-funds/portfolio'),
+    getPortfolio: (userId?: string) => apiClient.get('/finance/mutual-funds/portfolio', { params: { user_id: userId } }),
+    getHoldingDetails: (id: string) => apiClient.get(`/finance/mutual-funds/holdings/${id}`),
+    updateHolding: (id: string, data: any) => apiClient.patch(`/finance/mutual-funds/holdings/${id}`, data),
     getAnalytics: () => apiClient.get('/finance/mutual-funds/analytics'),
     getPerformanceTimeline: (period: string = '1y', granularity: string = '1w') => apiClient.get('/finance/mutual-funds/analytics/performance-timeline', { params: { period, granularity } }),
     deleteCacheTimeline: () => apiClient.delete('/finance/mutual-funds/analytics/cache'),
