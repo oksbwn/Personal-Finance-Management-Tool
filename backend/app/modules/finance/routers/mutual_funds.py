@@ -62,6 +62,115 @@ def get_portfolio(
 ):
     return MutualFundService.get_portfolio(db, str(current_user.tenant_id))
 
+@router.get("/analytics")
+def get_analytics(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return MutualFundService.get_portfolio_analytics(db, str(current_user.tenant_id))
+
+@router.get("/analytics/performance-timeline")
+def get_performance_timeline(
+    period: str = "1y",
+    granularity: str = "1w",
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get portfolio performance timeline.
+    
+    Query params:
+    - period: One of '1m', '3m', '6m', '1y', 'all'
+    - granularity: One of '1d', '1w', '1m'
+    """
+    return MutualFundService.get_performance_timeline(db, str(current_user.tenant_id), period, granularity)
+
+@router.delete("/analytics/cache")
+def clear_timeline_cache(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Clear timeline cache for current user"""
+    count = MutualFundService.clear_timeline_cache(db, str(current_user.tenant_id))
+    return {"message": f"Cleared {count} cache entries"}
+
+@router.post("/cleanup-duplicates")
+def cleanup_duplicate_orders(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove duplicate mutual fund orders that might have been imported multiple times"""
+    from backend.app.modules.finance.models import MutualFundOrder, MutualFundHolding
+    from sqlalchemy import func
+    
+    tenant_id = str(current_user.tenant_id)
+    
+    # 1. Find duplicate groups
+    duplicates = db.query(
+        MutualFundOrder.scheme_code, 
+        MutualFundOrder.order_date, 
+        MutualFundOrder.units, 
+        MutualFundOrder.amount, 
+        MutualFundOrder.type
+    ).filter(MutualFundOrder.tenant_id == tenant_id).group_by(
+        MutualFundOrder.scheme_code, 
+        MutualFundOrder.order_date, 
+        MutualFundOrder.units, 
+        MutualFundOrder.amount, 
+        MutualFundOrder.type
+    ).having(func.count('*') > 1).all()
+    
+    removed_count = 0
+    for sc, d, u, a, t in duplicates:
+        # Keep the first one, delete the rest
+        all_matches = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.scheme_code == sc,
+            MutualFundOrder.order_date == d,
+            MutualFundOrder.units == u,
+            MutualFundOrder.amount == a,
+            MutualFundOrder.type == t
+        ).order_by(MutualFundOrder.created_at).all()
+        
+        # Keep first, delete others
+        to_delete = all_matches[1:]
+        for order in to_delete:
+            db.delete(order)
+            removed_count += 1
+            
+    db.commit()
+    
+    # 2. Recalculate holdings (since units were double/triple counted)
+    # This is a bit complex to do fully here, but we can reset units to 0 and re-add?
+    # Better: just clear holdings and let the next calculation/fetch handle it if we have a way
+    # Or just tell user to re-import? No, let's fix it properly.
+    
+    holdings = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id).all()
+    for holding in holdings:
+        # Reset units and avg price
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.scheme_code == holding.scheme_code
+        ).all()
+        
+        total_units = 0
+        total_cost = 0
+        for o in orders:
+            if o.type == "BUY":
+                total_units += float(o.units)
+                total_cost += float(o.amount)
+            else:
+                total_units -= float(o.units)
+                # Simple avg cost reduction for sell
+        
+        holding.units = max(0, total_units)
+        holding.average_price = total_cost / total_units if total_units > 0 else 0
+        holding.current_value = float(holding.units) * float(holding.last_nav or 0)
+        
+    db.commit()
+    
+    return {"message": f"Removed {removed_count} duplicate orders and synchronized {len(holdings)} holdings"}
+
 @router.post("/transaction")
 def add_transaction(
     payload: TransactionCreate,

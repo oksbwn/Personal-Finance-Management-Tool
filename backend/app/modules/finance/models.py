@@ -180,3 +180,20 @@ class MutualFundOrder(Base):
     external_id = Column(String, nullable=True)
     import_source = Column(String, default="MANUAL")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class PortfolioTimelineCache(Base):
+    """Cache for portfolio timeline snapshots to avoid recalculating historical data"""
+    __tablename__ = "portfolio_timeline_cache"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    snapshot_date = Column(DateTime, nullable=False)  # Date of this snapshot
+    portfolio_hash = Column(String, nullable=False)  # Hash of scheme_codes to detect changes
+    portfolio_value = Column(Numeric(15, 2), nullable=False)
+    invested_value = Column(Numeric(15, 2), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Composite index for fast lookups
+    __table_args__ = (
+        {'sqlite_autoincrement': True}
+    )

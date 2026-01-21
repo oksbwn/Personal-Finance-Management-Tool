@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
+import DonutChart from '@/components/DonutChart.vue'
+import LineChart from '@/components/LineChart.vue'
 import { financeApi, aiApi } from '@/api/client'
 import { useNotificationStore } from '@/stores/notification'
 import { 
-    Search, 
+    Search,
     Plus, 
     Upload, 
     RefreshCw,
@@ -156,6 +158,63 @@ async function fetchPortfolio() {
         notify.error("Failed to load portfolio")
     } finally {
         isLoading.value = false
+    }
+}
+
+const analytics = ref<any>(null)
+
+async function fetchAnalytics() {
+    try {
+        const res = await financeApi.getAnalytics()
+        analytics.value = res.data
+    } catch (e) {
+        console.error('Analytics fetch failed:', e)
+    }
+}
+
+const performanceData = ref<any>(null)
+const selectedPeriod = ref('3m')
+const selectedGranularity = ref('1d') // Default to daily
+const isLoadingTimeline = ref(false)
+
+async function fetchPerformanceTimeline() {
+    console.log('[Timeline] Starting fetch, isLoading:', isLoadingTimeline.value)
+    isLoadingTimeline.value = true
+    try {
+        const res = await financeApi.getPerformanceTimeline(selectedPeriod.value, selectedGranularity.value)
+        performanceData.value = res.data
+        console.log('[Timeline] Data received:', res.data.timeline?.length, 'points')
+    } catch (e) {
+        console.error('Performance timeline fetch failed:', e)
+    } finally {
+        isLoadingTimeline.value = false
+        console.log('[Timeline] Set loading to false:', isLoadingTimeline.value)
+    }
+}
+
+async function clearCacheAndRefresh() {
+    try {
+        console.log('[Timeline] Clearing cache...')
+        await financeApi.deleteCacheTimeline()
+        notify.success("Timeline cache cleared. Recalculating...")
+        console.log('[Timeline] Cache cleared, fetching fresh data...')
+        await fetchPerformanceTimeline()
+    } catch (e) {
+        console.error('Failed to clear cache:', e)
+        notify.error("Failed to clear timeline cache")
+    }
+}
+
+async function cleanupDuplicates() {
+    try {
+        console.log('[Timeline] Cleaning up duplicates...')
+        const res = await financeApi.cleanupDuplicateOrders()
+        console.log('[Timeline] Cleanup complete:', res.data.message)
+        notify.success(res.data.message)
+        await clearCacheAndRefresh()
+    } catch (e) {
+        console.error('Failed to cleanup duplicates:', e)
+        notify.error('Cleanup failed. See console for details.')
     }
 }
 
@@ -407,7 +466,9 @@ onMounted(async () => {
         await Promise.all([
             fetchUniqueParams(),
             handleSearch(),
-            fetchMarketIndices()
+            fetchMarketIndices(),
+            fetchAnalytics(),
+            fetchPerformanceTimeline()
         ])
         
         // Auto-generate password if available and currently empty
@@ -479,6 +540,23 @@ watch(activeFilter, (newFilter) => {
     } else {
         searchByCategory(newFilter)
     }
+})
+
+// Watch for period changes
+watch(selectedPeriod, (newPeriod) => {
+    // Default logic: 3 Months -> Daily, others can stay as is or default to Weekly
+    if (newPeriod === '3m') {
+        selectedGranularity.value = '1d'
+    } else if (newPeriod === '1m') {
+        selectedGranularity.value = '1d'
+    } else {
+        selectedGranularity.value = '1w'
+    }
+    fetchPerformanceTimeline()
+})
+
+watch(selectedGranularity, () => {
+    fetchPerformanceTimeline()
 })
 
 function getSparklinePath(points: number[]): string {
@@ -605,7 +683,15 @@ function getSparklinePath(points: number[]): string {
                     <div class="summary-card net">
                         <div class="card-icon">📥</div>
                         <div class="card-content">
-                            <span class="card-label">Invested Amount</span>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <span class="card-label">Invested Amount</span>
+                                <button 
+                                    @click="cleanupDuplicates" 
+                                    class="btn-ghost" 
+                                    style="padding: 2px 6px; font-size: 10px; color: #94a3b8; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer;"
+                                    title="Cleanup duplicate transactions and sync data"
+                                >Fix Data</button>
+                            </div>
                             <span class="card-value">{{ formatAmount(portfolioStats.invested) }}</span>
                             <span class="card-trend text-indigo-600"> Across {{ portfolio.length }} Funds</span>
                         </div>
@@ -617,7 +703,9 @@ function getSparklinePath(points: number[]): string {
                             <span class="card-value" :class="portfolioStats.pl >= 0 ? 'text-emerald-700' : 'text-rose-700'">
                                 {{ portfolioStats.pl >= 0 ? '+' : '' }}{{ formatAmount(portfolioStats.pl) }}
                             </span>
-                             <span class="card-trend text-gray-400">Total XIRR pending</span>
+                             <span class="card-trend" :class="analytics && analytics.xirr !== null && analytics.xirr >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                                {{ analytics && analytics.xirr !== null ? `${analytics.xirr.toFixed(2)}% XIRR` : 'XIRR: N/A' }}
+                             </span>
                         </div>
                     </div>
                 </div>
@@ -713,12 +801,140 @@ function getSparklinePath(points: number[]): string {
                 </div>
             </div>
 
+            <!-- Portfolio Analytics Section (Only in Portfolio Tab) -->
+            <div v-if="activeTab === 'portfolio' && analytics && portfolio.length > 0" class="analytics-section">
+                <h3 class="section-title">Portfolio Analytics</h3>
+                
+                <!-- Performance Timeline Chart (Full Width) -->
+                <div class="analytics-card performance-card" style="grid-column: 1 / -1;">
+                    <div class="card-header-flex" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h4 class="card-header" style="margin: 0;">Performance Timeline</h4>
+                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                            <!-- Granularity Selector -->
+                            <div class="granularity-selector" style="display: flex; gap: 0.25rem; align-items: center; background: #f8fafc; padding: 2px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                <select 
+                                    v-model="selectedGranularity"
+                                    style="border: none; background: transparent; font-size: 11px; font-weight: 600; color: #64748b; padding: 2px 4px; outline: none; cursor: pointer;"
+                                >
+                                    <option value="1d">Daily</option>
+                                    <option value="1w">Weekly</option>
+                                    <option value="1m">Monthly</option>
+                                </select>
+                            </div>
+
+                            <div class="period-selector" style="display: flex; gap: 0.5rem;">
+                                <button 
+                                    v-for="p in ['1m', '3m', '6m', '1y', 'all']"
+                                    :key="p"
+                                    :class="{active: selectedPeriod === p}"
+                                    @click="selectedPeriod = p"
+                                    style="padding: 0.375rem 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s;"
+                                    :style="{
+                                        background: selectedPeriod === p ? '#3b82f6' : 'white',
+                                        color: selectedPeriod === p ? 'white' : '#64748b',
+                                        borderColor: selectedPeriod === p ? '#3b82f6' : '#e2e8f0'
+                                    }"
+                                >{{ p.toUpperCase() }}</button>
+                            </div>
+                            <button 
+                                @click="clearCacheAndRefresh"
+                                style="padding: 0.375rem 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 0.375rem;"
+                                title="Clear cache and recalculate"
+                            >
+                                <RefreshCw :size="14" />
+                                <span>Refresh</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Loading State -->
+                    <div v-if="isLoadingTimeline" style="position: relative; min-height: 320px;">
+                        <div style="position: absolute; inset: 0; background: rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; border-radius: 8px; z-index: 10; border: 2px dashed #cbd5e1;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+                                <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                                <span style="color: #475569; font-size: 0.9375rem; font-weight: 500;">Loading performance data...</span>
+                            </div>
+                        </div>
+                        <!-- Show faded chart if exists -->
+                        <div v-if="performanceData?.timeline" style="opacity: 0.2; pointer-events: none;">
+                            <LineChart :data="performanceData.timeline" :height="280" />
+                        </div>
+                    </div>
+                    
+                    <!-- Chart (Not Loading) -->
+                    <div v-else-if="performanceData?.timeline && performanceData.timeline.length > 0">
+                        <LineChart :data="performanceData.timeline" :height="280" />
+                    </div>
+                    
+                    <!-- Empty State -->
+                    <div v-else style="text-align: center; padding: 3rem; color: #94a3b8;">
+                        No performance data available
+                    </div>
+                </div>
+                
+                <div class="analytics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                    <!-- Asset Allocation Donut Chart -->
+                    <div class="analytics-card allocation-card">
+                        <h4 class="card-header">Asset Allocation</h4>
+                        <DonutChart :data="analytics.asset_allocation" :size="180" />
+                    </div>
+
+                    <!-- Sector/Category Distribution -->
+                    <div class="analytics-card allocation-card">
+                        <h4 class="card-header">Sector / Category Distribution</h4>
+                        <DonutChart :data="analytics.category_allocation || {}" :size="180" />
+                    </div>
+                </div>
+
+                <div class="analytics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                    <!-- Top Gainers -->
+                    <div class="analytics-card performers-card">
+                        <h4 class="card-header gainers">🚀 Top Gainers</h4>
+                        <div class="performers-list">
+                            <div v-for="fund in analytics.top_gainers" :key="fund.id" class="performer-item">
+                                <div class="performer-left">
+                                    <div class="performer-name">{{ fund.scheme_name }}</div>
+                                    <div class="performer-code">{{ fund.scheme_code }}</div>
+                                </div>
+                                <div class="performer-right positive">
+                                    <div class="performer-pl">+{{ formatAmount(fund.profit_loss) }}</div>
+                                    <div class="performer-percent">+{{ fund.pl_percent.toFixed(2) }}%</div>
+                                </div>
+                            </div>
+                            <div v-if="analytics.top_gainers.length === 0" class="empty-state">
+                                No gainers yet
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Losers -->
+                    <div class="analytics-card performers-card">
+                        <h4 class="card-header losers">📉 Top Losers</h4>
+                        <div class="performers-list">
+                            <div v-for="fund in analytics.top_losers" :key="fund.id" class="performer-item">
+                                <div class="performer-left">
+                                    <div class="performer-name">{{ fund.scheme_name }}</div>
+                                    <div class="performer-code">{{ fund.scheme_code }}</div>
+                                </div>
+                                <div class="performer-right negative">
+                                    <div class="performer-pl">{{ formatAmount(fund.profit_loss) }}</div>
+                                    <div class="performer-percent">{{ fund.pl_percent.toFixed(2) }}%</div>
+                                </div>
+                            </div>
+                            <div v-if="analytics.top_losers.length === 0" class="empty-state">
+                                No losers
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- SEARCH TAB (Consolidated & Full Width) -->
             <div v-if="activeTab === 'search'" class="search-tab-wrapper full-width animate-in">
-                <!-- Filter Chips & Search Bar Integrated -->
-                <!-- Filter Chips & Search Bar Integrated -->
-                <div class="search-filters-bar mb-8 flex-col gap-4">
-                    <div class="filters-scroll-area">
+                <!-- All controls in one row: Filters, Search, Sort -->
+                <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 2rem; flex-wrap: wrap;">
+                    <!-- Category Filter Chips -->
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; flex: 1; min-width: 200px;">
                         <button 
                             v-for="filter in searchFilters" 
                             :key="filter"
@@ -730,36 +946,38 @@ function getSparklinePath(points: number[]): string {
                         </button>
                     </div>
                     
-                    <div class="filter-controls-container">
-                        <div class="filter-search-input-wrapper">
-                            <Search :size="16" class="filter-search-icon" />
-                            <input 
-                                v-model="searchQuery" 
-                                @keyup.enter="handleSearch"
-                                placeholder="Search by fund name or AMC..." 
-                                type="text"
-                                class="filter-search-input"
-                            />
-                        </div>
-
-                         <div class="sort-dropdown-container">
-                            <select v-model="sortBy" @change="handleSearch" class="sort-select">
-                                <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">
-                                    {{ opt.label }}
-                                </option>
-                            </select>
-                            <ChevronDown :size="14" class="sort-icon" />
-                        </div>
-
-                        <button 
-                            class="filter-search-btn"
-                            @click="handleSearch"
-                            :disabled="isSearching"
-                        >
-                            <RefreshCw v-if="isSearching" :size="14" class="spin" />
-                            <span v-else>Search</span>
-                        </button>
+                    <!-- Search Input -->
+                    <div class="filter-search-input-wrapper" style="flex: 0 1 300px; min-width: 200px;">
+                        <Search :size="16" class="filter-search-icon" />
+                        <input 
+                            v-model="searchQuery" 
+                            @keyup.enter="handleSearch"
+                            placeholder="Search by fund name or AMC..." 
+                            type="text"
+                            class="filter-search-input"
+                        />
                     </div>
+
+                    <!-- Sort Dropdown -->
+                    <div class="sort-dropdown-container" style="min-width: 150px;">
+                        <select v-model="sortBy" @change="handleSearch" class="sort-select">
+                            <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">
+                                {{ opt.label }}
+                            </option>
+                        </select>
+                        <ChevronDown :size="14" class="sort-icon" />
+                    </div>
+
+                    <!-- Search Button -->
+                    <button 
+                        class="filter-search-btn"
+                        @click="handleSearch"
+                        :disabled="isSearching"
+                        style="min-width: 100px;"
+                    >
+                        <RefreshCw v-if="isSearching" :size="14" class="spin" />
+                        <span v-else>Search</span>
+                    </button>
                 </div>
 
                 <!-- SEARCH RESULTS -->
@@ -1132,7 +1350,7 @@ function getSparklinePath(points: number[]): string {
                         <div class="summary-stats-row">
                             <div class="summary-stat-box success">
                                 <span class="stat-count">{{ importStats.processed }}</span>
-                                <span class="stat-label">Imported</span>
+                                <span class="stat-label">Imported Successfully</span>
                             </div>
                         <div class="summary-stat-box" :class="importStats.details?.failed?.length ? 'failed' : 'neutral'">
                             <span class="stat-count">{{ importStats.details?.failed?.length || 0 }}</span>
@@ -3405,6 +3623,182 @@ function getSparklinePath(points: number[]): string {
 @keyframes shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+}
+
+/* Analytics Section Styles */
+.analytics-section {
+    margin-top: 2rem;
+    padding: 1.5rem 0;
+}
+
+.section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 1.5rem;
+}
+
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.analytics-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s;
+}
+
+.analytics-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.xirr-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.card-icon-large {
+    font-size: 2.5rem;
+    flex-shrink: 0;
+}
+
+.xirr-card .card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.card-label {
+    font-size: 0.875rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.xirr-value {
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.xirr-value.positive {
+    color: #10b981;
+}
+
+.xirr-value.negative {
+    color: #ef4444;
+}
+
+.card-subtitle {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+.allocation-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.card-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 1rem;
+    width: 100%;
+    text-align: center;
+}
+
+.performers-card .card-header {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.performers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.performer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: #f8fafc;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.performer-item:hover {
+    background: #f1f5f9;
+}
+
+.performer-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.performer-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.performer-code {
+    font-size: 0.75rem;
+    color: #64748b;
+    font-family: monospace;
+    margin-top: 0.125rem;
+}
+
+.performer-right {
+    text-align: right;
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+}
+
+.performer-pl {
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.performer-percent {
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+.performer-right.positive .performer-pl,
+.performer-right.positive .performer-percent {
+    color: #10b981;
+}
+
+.performer-right.negative .performer-pl,
+.performer-right.negative .performer-percent {
+    color: #ef4444;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 1.5rem;
+    color: #94a3b8;
+    font-size: 0.875rem;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 </style>

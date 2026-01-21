@@ -112,6 +112,21 @@ class MutualFundService:
             else:
                 raise ValueError("Invalid Scheme Code or API Error")
 
+        # 2. Check for duplicate order (Idempotency)
+        # Check if an identical order already exists for this tenant
+        existing_order = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.scheme_code == scheme_code,
+            MutualFundOrder.order_date == data['date'],
+            MutualFundOrder.type == data.get('type', 'BUY'),
+            MutualFundOrder.units == data['units'],
+            MutualFundOrder.amount == data['amount']
+        ).first()
+
+        if existing_order:
+            print(f"[Import] Skipping duplicate order for scheme {scheme_code} on {data['date']}")
+            return existing_order
+
         # 2. Create Order
         order = MutualFundOrder(
             tenant_id=tenant_id,
@@ -286,7 +301,6 @@ class MutualFundService:
                         return datetime.min
                 
                 h.last_updated_at = parse_date(nav_date_str)
-                db.commit()  # Commit each update individually to avoid DuckDB transaction conflicts
                 updates_made = True
             
             # Enrich with Meta name
@@ -319,8 +333,11 @@ class MutualFundService:
                 "last_updated": last_updated_str,
                 "sparkline": sparkline  # 30-day NAV trend
             })
+        
+        # Commit all updates in one transaction to avoid DuckDB conflicts
+        if updates_made:
+            db.commit()
             
-        # Remove the bulk commit since we're committing individually now
         return results
 
     @staticmethod
@@ -373,3 +390,415 @@ class MutualFundService:
         
         # Run async tasks
         return asyncio.run(fetch_all())
+
+    @staticmethod
+    def get_portfolio_analytics(db: Session, tenant_id: str):
+        """
+        Calculate portfolio analytics: allocation, top performers, XIRR
+        """
+        from backend.app.modules.finance.utils.financial_math import xirr, categorize_fund
+        
+        # Get portfolio data
+        holdings = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        
+        if not holdings:
+            return {
+                "asset_allocation": {"equity": 0, "debt": 0, "hybrid": 0, "other": 0},
+                "category_allocation": {},
+                "top_gainers": [],
+                "top_losers": [],
+                "xirr": 0,
+                "total_invested": 0,
+                "current_value": 0
+            }
+        
+        # Calculate asset allocation
+        allocation = {"equity": 0.0, "debt": 0.0, "hybrid": 0.0, "other": 0.0}
+        category_allocation = {}
+        total_value = 0.0
+        
+        for h in holdings:
+            meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
+            raw_category = meta.category if meta else "Other"
+            asset_type = categorize_fund(raw_category)
+            current_val = float(h.current_value or 0.0)
+            
+            allocation[asset_type] += current_val
+            
+            # Category-wise (Sector proxy)
+            if raw_category not in category_allocation:
+                category_allocation[raw_category] = 0.0
+            category_allocation[raw_category] += current_val
+            
+            total_value += current_val
+        
+        # Convert to percentages
+        if total_value > 0:
+            allocation = {k: round((v / total_value) * 100, 2) for k, v in allocation.items()}
+            category_allocation = {k: round((v / total_value) * 100, 2) for k, v in category_allocation.items()}
+        
+        # Get portfolio with P/L for top performers
+        portfolio_data = MutualFundService.get_portfolio(db, tenant_id)
+        
+        # Calculate P/L percentage for sorting
+        for item in portfolio_data:
+            invested = item.get('invested_value', 0)
+            if invested > 0:
+                item['pl_percent'] = round((item['profit_loss'] / invested) * 100, 2)
+            else:
+                item['pl_percent'] = 0
+        
+        # Sort by P/L percentage
+        sorted_by_pl = sorted(portfolio_data, key=lambda x: x['pl_percent'], reverse=True)
+        
+        top_gainers = sorted_by_pl[:5]
+        top_losers = list(reversed(sorted_by_pl[-5:]))
+        
+        # Calculate XIRR
+        # Get all transactions for EXISTING holdings only (Same as timeline)
+        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        active_holding_ids = [h.id for h in holdings_query]
+        
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.holding_id.in_(active_holding_ids)
+        ).all()
+        
+        xirr_value = None
+        total_invested = 0.0
+        
+        if orders and len(orders) > 0:
+            from datetime import date
+            cash_flows = []
+            for order in orders:
+                # Use units * nav if amount is 0 (fallback for older imports)
+                amount = float(order.amount)
+                if amount <= 0:
+                    amount = float(order.units) * float(order.nav)
+                
+                # Convert order_date to date if it's datetime
+                order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                
+                if order.type == "BUY":
+                    cash_flows.append((order_date, -amount))  # Outflow is negative
+                    total_invested += amount
+                else:  # SELL
+                    cash_flows.append((order_date, amount))  # Inflow is positive
+            
+            # Add current value as final inflow at today's date
+            if total_value > 0:
+                cash_flows.append((date.today(), total_value))
+            
+            
+            try:
+                if len(cash_flows) >= 2 and abs(sum_out) > 0.01:
+                    xirr_decimal = xirr(cash_flows)
+                    xirr_value = round(xirr_decimal * 100, 2)  # Convert to percentage
+            except Exception as e:
+                print(f"XIRR calculation failed: {e}")
+                xirr_value = None
+        
+        return {
+            "asset_allocation": allocation,
+            "category_allocation": category_allocation,
+            "top_gainers": top_gainers,
+            "top_losers": top_losers,
+            "xirr": xirr_value,
+            "total_invested": round(total_invested, 2),
+            "current_value": round(total_value, 2)
+        }
+    
+    @staticmethod
+    def clear_timeline_cache(db: Session, tenant_id: str, from_date=None):
+        """
+        Clear timeline cache for a tenant.
+        Call this when transactions are added/deleted to invalidate cache.
+        
+        Args:
+            tenant_id: Tenant ID
+            from_date: Clear cache from this date onwards (defaults to all)
+        """
+        from ..models import PortfolioTimelineCache
+        
+        query = db.query(PortfolioTimelineCache).filter(
+            PortfolioTimelineCache.tenant_id == tenant_id
+        )
+        
+        if from_date:
+            query = query.filter(PortfolioTimelineCache.snapshot_date >= from_date)
+        
+        deleted_count = query.delete()
+        db.commit()
+        print(f"[Cache] Cleared {deleted_count} cache entries for tenant {tenant_id}")
+        return deleted_count
+    
+    @staticmethod
+    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w"):
+        """
+        Calculate portfolio value over time with smart caching.
+        
+        Returns timeline data with portfolio value and invested amount at weekly intervals.
+        """
+        from datetime import date, timedelta
+        from ..utils.financial_math import calculate_start_date, add_months
+        from ..models import PortfolioTimelineCache
+        import httpx
+        import hashlib
+        
+        # Get all transactions for EXISTING holdings only
+        # This prevents orphaned orders from deleted holdings from inflating the timeline
+        holdings = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        active_holding_ids = [h.id for h in holdings]
+        
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.holding_id.in_(active_holding_ids)
+        ).order_by(MutualFundOrder.order_date.asc()).all()
+        
+        if not orders:
+            print(f"[Timeline] No orders found for tenant {tenant_id}")
+            return {
+                "timeline": [],
+                "period": period,
+                "total_return_percent": 0
+            }
+        
+        # Calculate portfolio hash (sorted scheme codes)
+        unique_schemes = sorted(set(str(o.scheme_code) for o in orders))
+        portfolio_hash = hashlib.md5(",".join(unique_schemes).encode()).hexdigest()
+        
+        # Determine date range and granularity
+        end_date = date.today()
+        start_date = calculate_start_date(period, orders[0].order_date)
+        
+        # Snapshot interval based on granularity
+        if granularity == "1d":
+            snapshot_days = 1
+        elif granularity == "1m":
+            snapshot_days = 30 # Approximation, but we can iterate months
+        else:
+            snapshot_days = 7  # Default to weekly
+            # Align to Monday for consistency if weekly
+            days_until_monday = (7 - start_date.weekday()) % 7
+            if days_until_monday > 0:
+                start_date = start_date + timedelta(days=days_until_monday)
+        
+        # Try to fetch cached snapshots
+        cached_snapshots = db.query(PortfolioTimelineCache).filter(
+            PortfolioTimelineCache.tenant_id == tenant_id,
+            PortfolioTimelineCache.portfolio_hash == portfolio_hash,
+            PortfolioTimelineCache.snapshot_date >= start_date,
+            PortfolioTimelineCache.snapshot_date < end_date  # Don't cache today
+        ).all()
+        
+        # Convert cached snapshots to dict for easy lookup
+        cache_dict = {
+            snap.snapshot_date.date(): {
+                "date": snap.snapshot_date.date().isoformat(),
+                "value": float(snap.portfolio_value),
+                "invested": float(snap.invested_value)
+            }
+            for snap in cached_snapshots
+        }
+        
+        print(f"[Cache] Found {len(cache_dict)} cached snapshots for hash {portfolio_hash[:8]}...")
+        
+        # Generate snapshots
+        timeline = []
+        current_date = start_date
+        
+        # NAV cache to avoid repeated API calls for same scheme_code + date
+        nav_cache = {}
+        
+        
+        while current_date <= end_date:
+            # Check if this snapshot is cached
+            if current_date in cache_dict and current_date < end_date:
+                # Use cached value
+                timeline.append(cache_dict[current_date])
+            else:
+                # Calculate holdings snapshot at this date
+                holdings_snapshot = {}  # {scheme_code: units}
+                invested_at_date = 0
+                buy_total = 0
+                sell_total = 0
+                
+                for order in orders:
+                    order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                    
+                    if order_date <= current_date:
+                        scheme_code = str(order.scheme_code)
+                        
+                        if order.type == "BUY":
+                            holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) + float(order.units)
+                            invested_at_date += float(order.amount)
+                            buy_total += float(order.amount)
+                        elif order.type == "SELL":
+                            holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) - float(order.units)
+                            invested_at_date -= float(order.amount)
+                            sell_total += float(order.amount)
+                
+                
+                # Calculate portfolio value at this date
+                portfolio_value = 0
+                nav_fetched = 0
+                nav_fallback = 0
+                
+                for scheme_code, units in holdings_snapshot.items():
+                    if units > 0:
+                        # Check cache first
+                        cache_key = f"{scheme_code}_{current_date}"
+                        
+                        if cache_key in nav_cache:
+                            nav = nav_cache[cache_key]
+                            portfolio_value += units * nav
+                            nav_fetched += 1
+                        else:
+                            # Fetch NAV for this date (or closest available)
+                            try:
+                                nav = MutualFundService._fetch_historical_nav(scheme_code, current_date)
+                                nav_cache[cache_key] = nav  # Cache it
+                                portfolio_value += units * nav
+                                nav_fetched += 1
+                            except Exception as e:
+                                # No print here for performance
+                                # Use current NAV as fallback
+                                holding = db.query(MutualFundHolding).filter(
+                                    MutualFundHolding.scheme_code == scheme_code,
+                                    MutualFundHolding.tenant_id == tenant_id
+                                ).first()
+                                if holding and holding.last_nav:
+                                    portfolio_value += units * float(holding.last_nav)
+                                    nav_fallback += 1
+                
+                
+                snapshot_data = {
+                    "date": current_date.isoformat(),
+                    "value": round(portfolio_value, 2),
+                    "invested": round(invested_at_date, 2)
+                }
+                timeline.append(snapshot_data)
+                
+                # Save to cache if not today
+                if current_date < end_date:
+                    from datetime import datetime as dt
+                    cache_entry = PortfolioTimelineCache(
+                        tenant_id=tenant_id,
+                        snapshot_date=dt.combine(current_date, dt.min.time()),
+                        portfolio_hash=portfolio_hash,
+                        portfolio_value=round(portfolio_value, 2),
+                        invested_value=round(invested_at_date, 2)
+                    )
+                    db.add(cache_entry)
+            
+            # Move to next snapshot date
+            # Move to next date based on granularity
+            if granularity == "1m":
+                current_date = add_months(current_date, 1)
+            else:
+                current_date = current_date + timedelta(days=snapshot_days)
+            
+            # Don't overshoot end date
+            if current_date > end_date:
+                break
+        
+        # Calculate total return
+        total_return_percent = 0
+        if timeline and timeline[-1]["invested"] > 0:
+            total_return_percent = (
+                (timeline[-1]["value"] - timeline[-1]["invested"]) / 
+                timeline[-1]["invested"] * 100
+            )
+        
+        # Commit cache entries to database
+        try:
+            db.commit()
+        except Exception as e:
+                                # Silent fail or log properly
+            db.rollback()
+        
+        # Calculate Benchmark (Nifty 50 proxy: 120716)
+        benchmark_timeline = []
+        try:
+            benchmark_code = "120716" # UTI Nifty 50 Index Fund
+            
+            # Use the same start/end/granularity as portfolio
+            b_current_date = timeline[0]["date"] if timeline else None
+            if b_current_date:
+                b_current_date = date.fromisoformat(b_current_date)
+                
+                # Fetch start NAV for normalization
+                start_nav = MutualFundService._fetch_historical_nav(benchmark_code, b_current_date)
+                portfolio_start_value = timeline[0]["value"]
+                
+                for point in timeline:
+                    p_date = date.fromisoformat(point["date"])
+                    p_nav = MutualFundService._fetch_historical_nav(benchmark_code, p_date)
+                    
+                    # Normalized benchmark value = (p_nav / start_nav) * portfolio_start_value
+                    # This makes the benchmark start at the same point as the portfolio for fair comparison
+                    normalized_value = (p_nav / start_nav) * portfolio_start_value if start_nav > 0 else 0
+                    benchmark_timeline.append({
+                        "date": point["date"],
+                        "value": round(normalized_value, 2)
+                    })
+        except Exception as b_err:
+            print(f"[Benchmark Error] Failed to calculate benchmark: {b_err}")
+            benchmark_timeline = []
+
+        return {
+            "timeline": timeline,
+            "benchmark": benchmark_timeline,
+            "period": period,
+            "granularity": granularity,
+            "total_return_percent": round(total_return_percent, 2)
+        }
+    
+    @staticmethod
+    def _fetch_historical_nav(scheme_code: str, target_date) -> float:
+        """
+        Fetch NAV for a specific date from mfapi.in.
+        Falls back to nearest available NAV if exact date not found.
+        """
+        import httpx
+        from datetime import timedelta
+        
+        try:
+            # mfapi.in provides historical data in reverse chronological order
+            response = httpx.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=5.0)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'data' not in data:
+                raise ValueError("No NAV data available")
+            
+            # Format target date as DD-MM-YYYY to match API format
+            target_date_str = target_date.strftime("%d-%m-%Y")
+            
+            # Try to find exact date first
+            for entry in data['data']:
+                if entry['date'] == target_date_str:
+                    return float(entry['nav'])
+            
+            # If not found, find closest date within 7 days before
+            target_timestamp = target_date
+            for entry in data['data']:
+                try:
+                    from datetime import datetime
+                    entry_date = datetime.strptime(entry['date'], "%d-%m-%Y").date()
+                    
+                    # Use NAV from up to 7 days before target
+                    if entry_date <= target_date and (target_date - entry_date).days <= 7:
+                        return float(entry['nav'])
+                except:
+                    continue
+            
+            # If still not found, use the latest available NAV
+            if data['data']:
+                return float(data['data'][0]['nav'])
+            
+            raise ValueError("No suitable NAV found")
+            
+        except Exception as e:
+            print(f"Error fetching historical NAV for {scheme_code}: {e}")
+            raise

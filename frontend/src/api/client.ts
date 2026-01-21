@@ -142,6 +142,10 @@ export const financeApi = {
 
     getMarketIndices: () => apiClient.get('/finance/mutual-funds/indices'),
     getPortfolio: () => apiClient.get('/finance/mutual-funds/portfolio'),
+    getAnalytics: () => apiClient.get('/finance/mutual-funds/analytics'),
+    getPerformanceTimeline: (period: string = '1y', granularity: string = '1w') => apiClient.get('/finance/mutual-funds/analytics/performance-timeline', { params: { period, granularity } }),
+    deleteCacheTimeline: () => apiClient.delete('/finance/mutual-funds/analytics/cache'),
+    cleanupDuplicateOrders: () => apiClient.post('/finance/mutual-funds/cleanup-duplicates'),
     createFundTransaction: (data: any) => apiClient.post('/finance/mutual-funds/transaction', data),
     delete: (url: string) => apiClient.delete(url), // Generic delete helper or specific method
     deleteHolding: (id: string) => apiClient.delete(`/finance/mutual-funds/holdings/${id}`),
