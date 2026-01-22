@@ -221,26 +221,21 @@ const selectedGranularity = ref('1d') // Default to daily
 const isLoadingTimeline = ref(false)
 
 async function fetchPerformanceTimeline() {
-    console.log('[Timeline] Starting fetch, isLoading:', isLoadingTimeline.value)
     isLoadingTimeline.value = true
     try {
         const res = await financeApi.getPerformanceTimeline(selectedPeriod.value, selectedGranularity.value)
         performanceData.value = res.data
-        console.log('[Timeline] Data received:', res.data.timeline?.length, 'points')
     } catch (e) {
         console.error('Performance timeline fetch failed:', e)
     } finally {
         isLoadingTimeline.value = false
-        console.log('[Timeline] Set loading to false:', isLoadingTimeline.value)
     }
 }
 
 async function clearCacheAndRefresh() {
     try {
-        console.log('[Timeline] Clearing cache...')
         await financeApi.deleteCacheTimeline()
         notify.success("Timeline cache cleared. Recalculating...")
-        console.log('[Timeline] Cache cleared, fetching fresh data...')
         await fetchPerformanceTimeline()
     } catch (e) {
         console.error('Failed to clear cache:', e)
@@ -250,9 +245,7 @@ async function clearCacheAndRefresh() {
 
 async function cleanupDuplicates() {
     try {
-        console.log('[Timeline] Cleaning up duplicates...')
         const res = await financeApi.cleanupDuplicateOrders()
-        console.log('[Timeline] Cleanup complete:', res.data.message)
         notify.success(res.data.message)
         await clearCacheAndRefresh()
     } catch (e) {
@@ -654,15 +647,6 @@ onMounted(async () => {
         const res = await financeApi.getMe()
         currentUser.value = res.data
         
-        // Initial Load
-        await Promise.all([
-            fetchUniqueParams(),
-            handleSearch(),
-            fetchMarketIndices(),
-            fetchAnalytics(),
-            fetchPerformanceTimeline()
-        ])
-        
         // Pre-fill PAN if available
         if (currentUser.value?.pan_number) {
             pdfImportPassword.value = currentUser.value.pan_number.toUpperCase()
@@ -675,6 +659,29 @@ onMounted(async () => {
         console.error("Failed to fetch user profile", e)
     }
 })
+
+// Lazy Loading / On-Demand Loading
+watch(activeTab, async (newTab) => {
+    if (newTab === 'portfolio') {
+        // Load Portfolio secondaries if not present
+        if (!analytics.value) fetchAnalytics()
+        if (!performanceData.value) fetchPerformanceTimeline()
+    } 
+    else if (newTab === 'search') {
+        // Load Search data only when tab is active
+        if (marketIndices.value.length > 0 && marketIndices.value[0].value === 'Unavailable') {
+            // Only fetch if currently in default/error state
+            fetchMarketIndices() 
+        } else if (marketIndices.value[0].value === 'Loading...') {
+             fetchMarketIndices()
+        }
+        
+        // Trigger initial search if empty
+        if (searchResults.value.length === 0) {
+            handleSearch()
+        }
+    }
+}, { immediate: true })
 
 async function fetchMarketIndices() {
     try {
@@ -698,10 +705,7 @@ async function fetchMarketIndices() {
     }
 }
 
-async function fetchUniqueParams() {
-    // Placeholder for future unique parameters fetching
-    return Promise.resolve()
-}
+
 
 // Correctly watch for sentinel availability
 watch(scrollSentinel, (el) => {
@@ -873,44 +877,59 @@ function getSparklinePath(points: number[]): string {
 
                 <!-- Standard Summary Cards -->
                 <div class="summary-cards">
-                    <div class="summary-card income">
-                        <div class="card-icon">💰</div>
-                        <div class="card-content">
-                            <span class="card-label">Current Value</span>
-                            <span class="card-value">{{ formatAmount(portfolioStats.current) }}</span>
-                            <span class="card-trend text-emerald-600">
-                                {{ portfolioStats.pl >= 0 ? '↑' : '↓' }} {{ Math.abs(portfolioStats.plPercent).toFixed(2) }}% Returns
-                            </span>
-                        </div>
-                    </div>
-                    <div class="summary-card net">
-                        <div class="card-icon">📥</div>
-                        <div class="card-content">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                <span class="card-label">Invested Amount</span>
-                                <button 
-                                    @click="cleanupDuplicates" 
-                                    class="btn-ghost" 
-                                    style="padding: 2px 6px; font-size: 10px; color: #94a3b8; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer;"
-                                    title="Cleanup duplicate transactions and sync data"
-                                >Fix Data</button>
+                    <!-- Skeleton Loading State -->
+                    <template v-if="isLoading">
+                        <div class="summary-card" v-for="i in 3" :key="`kpi-skeleton-${i}`">
+                            <div class="skeleton-icon pulse"></div>
+                            <div class="card-content w-full">
+                                <div class="skeleton-text w-24 mb-2"></div>
+                                <div class="skeleton-text w-32 h-8 mb-2"></div>
+                                <div class="skeleton-text w-16"></div>
                             </div>
-                            <span class="card-value">{{ formatAmount(portfolioStats.invested) }}</span>
-                            <span class="card-trend text-indigo-600"> Across {{ portfolio.length }} Funds</span>
                         </div>
-                    </div>
-                    <div class="summary-card" :class="portfolioStats.pl >= 0 ? 'income' : 'expense'">
-                        <div class="card-icon">📈</div>
-                        <div class="card-content">
-                            <span class="card-label">Overall Profit/Loss</span>
-                            <span class="card-value" :class="portfolioStats.pl >= 0 ? 'text-emerald-700' : 'text-rose-700'">
-                                {{ portfolioStats.pl >= 0 ? '+' : '' }}{{ formatAmount(portfolioStats.pl) }}
-                            </span>
-                             <span class="card-trend" :class="analytics && analytics.xirr !== null && analytics.xirr >= 0 ? 'text-emerald-600' : 'text-rose-600'">
-                                {{ analytics && analytics.xirr !== null ? `${analytics.xirr.toFixed(2)}% XIRR` : 'XIRR: N/A' }}
-                             </span>
+                    </template>
+
+                    <!-- Actual Data -->
+                    <template v-else>
+                        <div class="summary-card income">
+                            <div class="card-icon">💰</div>
+                            <div class="card-content">
+                                <span class="card-label">Current Value</span>
+                                <span class="card-value">{{ formatAmount(portfolioStats.current) }}</span>
+                                <span class="card-trend text-emerald-600">
+                                    {{ portfolioStats.pl >= 0 ? '↑' : '↓' }} {{ Math.abs(portfolioStats.plPercent).toFixed(2) }}% Returns
+                                </span>
+                            </div>
                         </div>
-                    </div>
+                        <div class="summary-card net">
+                            <div class="card-icon">📥</div>
+                            <div class="card-content">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <span class="card-label">Invested Amount</span>
+                                    <button 
+                                        @click="cleanupDuplicates" 
+                                        class="btn-ghost" 
+                                        style="padding: 2px 6px; font-size: 10px; color: #94a3b8; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer;"
+                                        title="Cleanup duplicate transactions and sync data"
+                                    >Fix Data</button>
+                                </div>
+                                <span class="card-value">{{ formatAmount(portfolioStats.invested) }}</span>
+                                <span class="card-trend text-indigo-600"> Across {{ portfolio.length }} Funds</span>
+                            </div>
+                        </div>
+                        <div class="summary-card" :class="portfolioStats.pl >= 0 ? 'income' : 'expense'">
+                            <div class="card-icon">📈</div>
+                            <div class="card-content">
+                                <span class="card-label">Overall Profit/Loss</span>
+                                <span class="card-value" :class="portfolioStats.pl >= 0 ? 'text-emerald-700' : 'text-rose-700'">
+                                    {{ portfolioStats.pl >= 0 ? '+' : '' }}{{ formatAmount(portfolioStats.pl) }}
+                                </span>
+                                 <span class="card-trend" :class="analytics && analytics.xirr !== null && analytics.xirr >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                                    {{ analytics && analytics.xirr !== null ? `${analytics.xirr.toFixed(2)}% XIRR` : 'XIRR: N/A' }}
+                                 </span>
+                            </div>
+                        </div>
+                    </template>
                 </div>
 
                 <!-- Holdings List (Standard Table) -->
@@ -926,7 +945,22 @@ function getSparklinePath(points: number[]): string {
                     </div>
                     
                     <div class="table-container">
-                         <div v-if="portfolio.length === 0 && !isLoading" class="py-12 text-center">
+                         <!-- Skeleton Loader -->
+                         <div v-if="isLoading" class="skeleton-table">
+                            <div class="skeleton-header"></div>
+                            <div v-for="i in 5" :key="i" class="skeleton-row">
+                                <div class="skeleton-cell w-1/3"></div>
+                                <div class="skeleton-cell w-16"></div>
+                                <div class="skeleton-cell w-20"></div>
+                                <div class="skeleton-cell w-20"></div>
+                                <div class="skeleton-cell w-20"></div>
+                                <div class="skeleton-cell w-24"></div>
+                                <div class="skeleton-cell w-24"></div>
+                                <div class="skeleton-cell w-20"></div>
+                            </div>
+                         </div>
+
+                         <div v-else-if="portfolio.length === 0" class="py-12 text-center">
                             <div class="text-4xl mb-3">🌱</div>
                             <h3 class="text-gray-900 font-bold">No investments found</h3>
                             <p class="text-gray-500 text-sm">Add funds or import CAS to start tracking.</p>
@@ -1188,21 +1222,8 @@ function getSparklinePath(points: number[]): string {
                     </div>
                     
                     <!-- Loading State -->
-                    <div v-if="isLoadingTimeline" style="position: relative; min-height: 320px;">
-                        <div style="position: absolute; inset: 0; background: rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; border-radius: 8px; z-index: 10; border: 2px dashed #cbd5e1;">
-                            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
-                                <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-                                <span style="color: #475569; font-size: 0.9375rem; font-weight: 500;">Loading performance data...</span>
-                            </div>
-                        </div>
-                        <!-- Show faded chart if exists -->
-                        <div v-if="performanceData?.timeline" style="opacity: 0.2; pointer-events: none;">
-                            <LineChart 
-                                :data="performanceData.timeline" 
-                                :benchmark="performanceData.benchmark"
-                                :height="280" 
-                            />
-                        </div>
+                    <div v-if="isLoadingTimeline" class="h-[320px] w-full relative">
+                         <div class="skeleton-chart-line pulse w-full h-[280px]"></div>
                     </div>
                     
                     <!-- Chart (Not Loading) -->
@@ -1224,13 +1245,19 @@ function getSparklinePath(points: number[]): string {
                     <!-- Asset Allocation Donut Chart -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Asset Allocation</h4>
-                        <DonutChart :data="analytics.asset_allocation" :size="180" legend-position="right" />
+                        <div v-if="isLoading && !analytics?.asset_allocation" class="h-[180px] flex items-center justify-center">
+                            <div class="skeleton-chart-circle pulse"></div>
+                        </div>
+                        <DonutChart v-else :data="analytics?.asset_allocation || {}" :size="180" legend-position="right" />
                     </div>
 
                     <!-- Sector/Category Distribution -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Sector / Category Distribution</h4>
-                        <DonutChart :data="analytics.category_allocation || {}" :size="180" legend-position="right" />
+                        <div v-if="isLoading && !analytics?.category_allocation" class="h-[180px] flex items-center justify-center">
+                            <div class="skeleton-chart-circle pulse"></div>
+                        </div>
+                        <DonutChart v-else :data="analytics?.category_allocation || {}" :size="180" legend-position="right" />
                     </div>
                 </div>
 
@@ -4527,4 +4554,101 @@ function getSparklinePath(points: number[]): string {
     gap: 1rem;
 }
 
+/* Skeleton Styles */
+.skeleton-table {
+    width: 100%;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #f1f5f9;
+}
+
+.skeleton-header {
+    height: 48px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.skeleton-row {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    gap: 1rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.skeleton-cell {
+    height: 16px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-cell::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0,
+        rgba(255, 255, 255, 0.5) 20%,
+        rgba(255, 255, 255, 0.8) 60%,
+        rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .5;
+    }
+}
+
+.pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.skeleton-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #e2e8f0;
+}
+
+.skeleton-text {
+    height: 10px;
+    border-radius: 4px;
+    background-color: #e2e8f0;
+}
+
+.skeleton-chart-circle {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    border: 20px solid #f1f5f9;
+    margin: 0 auto;
+}
+
+.skeleton-chart-line {
+    width: 100%;
+    height: 200px;
+    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
 </style>
