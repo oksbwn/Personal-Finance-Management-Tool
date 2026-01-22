@@ -129,6 +129,17 @@ def get_holding_details(
         raise HTTPException(status_code=404, detail="Holding not found")
     return details
 
+@router.get("/schemes/{scheme_code}/details")
+def get_scheme_details(
+    scheme_code: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    details = MutualFundService.get_scheme_details(db, str(current_user.tenant_id), scheme_code)
+    if not details:
+        raise HTTPException(status_code=404, detail="Scheme holdings not found")
+    return details
+
 @router.patch("/holdings/{holding_id}")
 def update_holding(
     holding_id: str,

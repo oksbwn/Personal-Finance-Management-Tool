@@ -597,70 +597,83 @@ class MutualFundService:
         
         # Process each holding with its NAV data
         # We wrap the update logic in a lock to prevent concurrent DuckDB writes
+        nav_data_list = asyncio.run(fetch_all_nav_data())
+        
+        # Phase 1: Update Holdings (Write Lock)
+        updates_made = False
         with _db_write_lock:
-            for h, nav_data in zip(holdings, nav_data_list):
-                latest_nav = nav_data["latest_nav"]
-                nav_date_str = nav_data["nav_date"]
-                sparkline = nav_data["sparkline"]
+            try:
+                for h, nav_data in zip(holdings, nav_data_list):
+                    latest_nav = nav_data.get("latest_nav", 0.0)
+                    nav_date_str = nav_data.get("nav_date", "")
+                    
+                    if latest_nav > 0:
+                        has_changed = False
+                        # NAV Update
+                        if not h.last_nav or abs(float(h.last_nav) - latest_nav) > 0.0001:
+                            h.last_nav = latest_nav
+                            has_changed = True
+                        
+                        # Value Update
+                        current_units = float(h.units or 0.0)
+                        new_value = current_units * latest_nav
+                        if not h.current_value or abs(float(h.current_value) - new_value) > 0.01:
+                            h.current_value = new_value
+                            has_changed = True
+                        
+                        # Date Update
+                        def parse_date_local(d_str):
+                            try:
+                                return datetime.strptime(d_str, "%d-%m-%Y")
+                            except: return None
+                        
+                        new_date = parse_date_local(nav_date_str)
+                        if new_date and (not h.last_updated_at or h.last_updated_at != new_date):
+                            h.last_updated_at = new_date
+                            has_changed = True
+                            
+                        if has_changed:
+                            updates_made = True
                 
-                # Update holding if we got valid NAV and it's actually different
-                if latest_nav > 0:
-                    has_changed = False
-                    if not h.last_nav or abs(float(h.last_nav) - latest_nav) > 0.0001:
-                        h.last_nav = latest_nav
-                        has_changed = True
-                    
-                    current_units = float(h.units or 0.0)
-                    new_value = current_units * latest_nav
-                    # Use a small epsilon for float comparison to avoid noise updates
-                    if not h.current_value or abs(float(h.current_value) - new_value) > 0.01:
-                        h.current_value = new_value
-                        has_changed = True
-                    
-                    def parse_date_local(d_str):
-                        try:
-                            return datetime.strptime(d_str, "%d-%m-%Y")
-                        except:
-                            return None
-                    
-                    new_date = parse_date_local(nav_date_str)
-                    if new_date and (not h.last_updated_at or h.last_updated_at != new_date):
-                        h.last_updated_at = new_date
-                        has_changed = True
-                    
-                    if has_changed:
-                        updates_made = True
-                
-                # Pre-calculate data for result list
-                units = float(h.units or 0.0)
-                avg_price = float(h.average_price or 0.0)
-                current_val = float(h.current_value or 0.0)
-                invested = units * avg_price
-                pl = (current_val - invested) if current_val > 0 else 0.0
-                last_updated_str = h.last_updated_at.strftime("%d-%b-%Y") if h.last_updated_at else "N/A"
-                
-                # Fetch meta for display
-                meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
+                if updates_made:
+                    MutualFundService._safe_commit(db)
+            except Exception as e:
+                print(f"[MutualFundService] Error updating NAVs: {e}")
+                db.rollback()
 
-                results.append({
-                    "id": h.id,
-                    "scheme_code": h.scheme_code,
-                    "scheme_name": meta.scheme_name if meta else "Unknown Fund",
-                    "category": meta.category if meta else "Other",
-                    "folio_number": h.folio_number,
-                    "units": units,
-                    "average_price": avg_price,
-                    "current_value": current_val,
-                    "invested_value": invested,
-                    "last_nav": float(h.last_nav or 0.0),
-                    "profit_loss": pl,
-                    "last_updated": last_updated_str,
-                    "sparkline": sparkline,
-                    "user_id": h.user_id
-                })
+        # Phase 2: Build Results (Read-Only)
+        # Objects might be expired after commit, so accessing properties will trigger refresh (SELECT)
+        # This is safe as we are outside the write lock and transaction.
+        for h, nav_data in zip(holdings, nav_data_list):
+            sparkline = nav_data.get("sparkline", [])
             
-            if updates_made:
-                MutualFundService._safe_commit(db)
+            # Accessing properties triggers reload if needed
+            units = float(h.units or 0.0)
+            avg_price = float(h.average_price or 0.0)
+            current_val = float(h.current_value or 0.0)
+            invested = units * avg_price
+            pl = (current_val - invested) if current_val > 0 else 0.0
+            last_updated_str = h.last_updated_at.strftime("%d-%b-%Y") if h.last_updated_at else "N/A"
+            
+            # Fetch meta (Autoflush irrelevant now as no pending changes)
+            meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
+
+            results.append({
+                "id": h.id,
+                "scheme_code": h.scheme_code,
+                "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+                "category": meta.category if meta else "Other",
+                "folio_number": h.folio_number,
+                "units": units,
+                "average_price": avg_price,
+                "current_value": current_val,
+                "invested_value": invested,
+                "last_nav": float(h.last_nav or 0.0),
+                "profit_loss": pl,
+                "last_updated": last_updated_str,
+                "sparkline": sparkline,
+                "user_id": h.user_id
+            })
             
         return results
 
@@ -791,6 +804,200 @@ class MutualFundService:
             "xirr": xirr_value,
             "transactions": orders_list,
             "nav_history": nav_history
+        }
+
+    @staticmethod
+    def get_scheme_details(db: Session, tenant_id: str, scheme_code: str):
+        from backend.app.modules.auth.models import User
+        
+        # 1. Fetch Metadata
+        meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == scheme_code).first()
+        
+        # 2. Fetch All Holdings for this Scheme
+        holdings = db.query(MutualFundHolding).filter(
+            MutualFundHolding.tenant_id == tenant_id,
+            MutualFundHolding.scheme_code == scheme_code
+        ).all()
+        
+        if not holdings:
+            return None
+            
+        # 3. Fetch All Orders for this Scheme
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.scheme_code == scheme_code
+        ).order_by(MutualFundOrder.order_date.desc()).all()
+        
+        # 4. Aggregation Logic
+        total_units = 0.0
+        total_current_value = 0.0
+        total_invested_value = 0.0
+        
+        user_ids = set()
+        folio_numbers = set()
+        
+        for h in holdings:
+            u = float(h.units or 0)
+            avg = float(h.average_price or 0)
+            curr = float(h.current_value or 0)
+            
+            total_units += u
+            total_current_value += curr
+            total_invested_value += (u * avg)
+            
+            if h.user_id: user_ids.add(h.user_id)
+            if h.folio_number: folio_numbers.add(h.folio_number)
+            
+        # Weighted Average Price
+        avg_price = total_invested_value / total_units if total_units > 0 else 0.0
+        profit_loss = total_current_value - total_invested_value
+        
+        # 5. XIRR Calculation (Combined)
+        from backend.app.modules.finance.utils.financial_math import xirr
+        from datetime import date
+        
+        cash_flows = []
+        for order in orders:
+            amount = float(order.amount)
+            if amount <= 0:
+                amount = float(order.units) * float(order.nav)
+            
+            order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+            
+            if order.type == "BUY":
+                cash_flows.append((order_date, -amount))
+            else:
+                cash_flows.append((order_date, amount))
+        
+        if total_current_value > 0:
+            cash_flows.append((date.today(), total_current_value))
+            
+        xirr_value = None
+        try:
+            if len(cash_flows) >= 2:
+                sum_out = sum(cf[1] for cf in cash_flows if cf[1] < 0)
+                if abs(sum_out) > 0.01:
+                    xirr_decimal = xirr(cash_flows)
+                    xirr_value = round(xirr_decimal * 100, 2)
+        except:
+            xirr_value = None
+
+        # 6. Format Transcations
+        orders_list = []
+        for o in orders:
+            orders_list.append({
+                "id": o.id,
+                "type": o.type,
+                "amount": float(o.amount),
+                "units": float(o.units),
+                "nav": float(o.nav),
+                "date": o.order_date.strftime("%Y-%m-%d"),
+                "status": o.status
+            })
+            
+        # 7. NAV History (Same as before)
+        nav_history = []
+        try:
+            import requests
+            from datetime import datetime
+            
+            response = requests.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=3)
+            if response.status_code == 200:
+                mf_data = response.json()
+                raw_history = mf_data.get("data", [])
+                
+                start_date = None
+                if orders:
+                    earliest_order = orders[-1].order_date
+                    start_date = earliest_order.date()
+                
+                valid_history = []
+                for entry in raw_history:
+                    try:
+                        d_obj = datetime.strptime(entry['date'], "%d-%m-%Y").date()
+                        if start_date is None or d_obj >= start_date:
+                            valid_history.append({
+                                "date": d_obj.strftime("%Y-%m-%d"),
+                                "value": float(entry['nav'])
+                            })
+                    except: continue
+                nav_history = sorted(valid_history, key=lambda x: x['date'])
+        except Exception as e:
+            print(f"Failed to fetch NAV history: {e}")
+
+        # 8. User Info & Owners List
+        owners_map = {}
+        all_users = db.query(User).filter(User.tenant_id == tenant_id).all()
+        user_lookup = {str(u.id): u for u in all_users}
+        
+        for uid in user_ids:
+            if uid and str(uid) in user_lookup:
+                u = user_lookup[str(uid)]
+                owners_map[str(uid)] = {
+                    "id": str(u.id),
+                    "name": u.full_name,
+                    "avatar": u.avatar
+                }
+        
+        owners_list = list(owners_map.values())
+        
+        # Enrich transactions with user info
+        enriched_orders = []
+        for o in orders:
+            u_info = None
+            if o.user_id and str(o.user_id) in user_lookup:
+                u = user_lookup[str(o.user_id)]
+                u_info = {"id": str(u.id), "name": u.full_name, "avatar": u.avatar}
+            elif o.holding_id:
+                # Fallback: try to find user via holding if not on order
+                # This might be expensive loop-in-loop, but dataset is small per scheme
+                parent_holding = next((h for h in holdings if h.id == o.holding_id), None)
+                if parent_holding and parent_holding.user_id:
+                     u = user_lookup.get(str(parent_holding.user_id))
+                     if u:
+                         u_info = {"id": str(u.id), "name": u.full_name, "avatar": u.avatar}
+
+            enriched_orders.append({
+                "id": o.id,
+                "type": o.type,
+                "amount": float(o.amount),
+                "units": float(o.units),
+                "nav": float(o.nav),
+                "date": o.order_date.strftime("%Y-%m-%d"),
+                "status": o.status,
+                "user": u_info
+            })
+
+        user_name = "Multiple Members" if len(user_ids) > 1 else None
+        user_avatar = None
+        if len(user_ids) == 1:
+            uid = list(user_ids)[0]
+            if uid and str(uid) in user_lookup:
+                u = user_lookup[str(uid)]
+                user_name = u.full_name
+                user_avatar = u.avatar
+
+        return {
+            "id": f"group_{scheme_code}", 
+            "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+            "scheme_code": scheme_code,
+            "folio_number": f"{len(folio_numbers)} Folios" if len(folio_numbers) > 1 else (list(folio_numbers)[0] if folio_numbers else "N/A"),
+            "category": meta.category if meta else "Other",
+            "user_id": list(user_ids)[0] if len(user_ids) == 1 else "multi",
+            "user_name": user_name or "Unassigned",
+            "user_avatar": user_avatar,
+            "units": total_units,
+            "average_price": avg_price,
+            "current_value": total_current_value,
+            "invested_value": total_invested_value,
+            "profit_loss": profit_loss,
+            "last_nav": float(holdings[0].last_nav or 0) if holdings else 0.0,
+            "last_updated_at": holdings[0].last_updated_at.strftime("%Y-%m-%d") if holdings and holdings[0].last_updated_at else None,
+            "xirr": xirr_value,
+            "transactions": enriched_orders,
+            "nav_history": nav_history,
+            "is_aggregate": True,
+            "owners": owners_list
         }
 
     @staticmethod

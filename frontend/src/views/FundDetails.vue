@@ -29,7 +29,12 @@ const isLoading = ref(true)
 async function fetchHoldingDetails() {
     isLoading.value = true
     try {
-        const res = await financeApi.getHoldingDetails(holdingId)
+        let res;
+        if (route.query.type === 'aggregate') {
+            res = await financeApi.getSchemeDetails(holdingId)
+        } else {
+            res = await financeApi.getHoldingDetails(holdingId)
+        }
         holding.value = res.data
     } catch (e) {
         console.error(e)
@@ -202,7 +207,7 @@ const formatDate = (dateStr: string) => {
                     </div>
                     
                     <div class="header-actions">
-                        <button class="btn-danger" @click="showDeleteConfirm = true">
+                        <button v-if="!holding.is_aggregate" class="btn-danger" @click="showDeleteConfirm = true">
                             <Trash2 :size="16" />
                             Remove Holding
                         </button>
@@ -279,6 +284,7 @@ const formatDate = (dateStr: string) => {
                                             <th class="text-right">Units</th>
                                             <th class="text-right">NAV</th>
                                             <th class="text-right">Amount</th>
+                                            <th v-if="holding.is_aggregate" class="text-right">Member</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -295,6 +301,14 @@ const formatDate = (dateStr: string) => {
                                             <td class="font-mono text-right">{{ order.units.toFixed(3) }}</td>
                                             <td class="font-mono text-right">{{ order.nav.toFixed(2) }}</td>
                                             <td class="font-bold text-right">{{ formatAmount(order.amount) }}</td>
+                                            <td v-if="holding.is_aggregate" class="text-right pl-4">
+                                                <div class="flex justify-end">
+                                                    <div v-if="order.user" class="member-avatar-mini w-6 h-6 text-[10px]" :title="order.user.name">
+                                                        {{ order.user.avatar || '👤' }}
+                                                    </div>
+                                                    <span v-else class="text-xs text-slate-400">-</span>
+                                                </div>
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -310,8 +324,9 @@ const formatDate = (dateStr: string) => {
                             </h4>
                             
                             <div 
-                                class="owner-box premium-owner interactive"
-                                @click="showUserModal = true"
+                                class="owner-box premium-owner"
+                                :class="{ 'interactive': !holding.is_aggregate }"
+                                @click="!holding.is_aggregate && (showUserModal = true)"
                             >
                                 <div class="avatar-ring">
                                     <template v-if="(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar) && isImageUrl(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar)">
@@ -327,8 +342,21 @@ const formatDate = (dateStr: string) => {
                                         {{ holding.user_name || familyMembers.find(u => u.id === holding.user_id)?.full_name || 'Unassigned' }}
                                     </div>
                                 </div>
-                                <div class="edit-icon">
+                                <div v-if="!holding.is_aggregate" class="edit-icon">
                                     <Edit2 :size="18" class="text-slate-400" />
+                                </div>
+                            </div>
+                            
+                            <!-- Multiple Owners List -->
+                            <div v-if="holding.is_aggregate && holding.owners && holding.owners.length > 1" class="px-6 pb-6">
+                                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Includes portfolios of:</div>
+                                <div class="flex flex-col gap-2">
+                                    <div v-for="owner in holding.owners" :key="owner.id" class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                         <div class="w-6 h-6 rounded-full bg-white flex items-center justify-center text-xs border border-slate-200 shadow-sm">
+                                            {{ owner.avatar || '👤' }}
+                                         </div>
+                                         <span class="text-sm font-medium text-slate-700">{{ owner.name }}</span>
+                                    </div>
                                 </div>
                             </div>
 

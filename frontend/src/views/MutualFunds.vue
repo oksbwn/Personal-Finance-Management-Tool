@@ -20,7 +20,8 @@ import {
     Trash2,
     Eye as EyeIconMain,
     ArrowUp,
-    ArrowDown
+    ArrowDown,
+    ChevronRight
 } from 'lucide-vue-next'
 import { useCurrency } from '@/composables/useCurrency'
 import { marked } from 'marked'
@@ -273,8 +274,67 @@ function handleSort(key: string) {
     }
 }
 
+const expandedGroups = ref(new Set<string>())
+
+function toggleGroup(id: string) {
+    if (expandedGroups.value.has(id)) {
+        expandedGroups.value.delete(id)
+    } else {
+        expandedGroups.value.add(id)
+    }
+}
+
+const groupedPortfolio = computed(() => {
+    if (!portfolio.value) return []
+    
+    const groups: Record<string, any> = {}
+    
+    for (const holding of portfolio.value) {
+        const code = holding.scheme_code
+        if (!groups[code]) {
+            groups[code] = {
+                ...holding, // Copy base props
+                id: `group_${code}`,
+                is_group_parent: false,
+                children: [holding]
+            }
+        } else {
+            groups[code].is_group_parent = true
+            groups[code].children.push(holding)
+        }
+    }
+    
+    return Object.values(groups).map(group => {
+        if (group.is_group_parent) {
+            // Aggregate totals
+            let totalUnits = 0
+            let totalInvested = 0
+            let totalCurrent = 0
+            
+            group.children.forEach((h: any) => {
+                totalUnits += Number(h.units)
+                totalInvested += Number(h.invested_value)
+                totalCurrent += Number(h.current_value)
+            })
+            
+            return {
+                ...group,
+                units: totalUnits,
+                invested_value: totalInvested,
+                current_value: totalCurrent,
+                profit_loss: totalCurrent - totalInvested,
+                average_price: totalUnits > 0 ? totalInvested / totalUnits : 0,
+                folio_number: `${group.children.length} Portfolios`,
+                has_multiple: true
+            }
+        }
+        // Return original single item
+        return group.children[0]
+    })
+})
+
 const sortedPortfolio = computed(() => {
-    return [...portfolio.value].sort((a, b) => {
+    return [...groupedPortfolio.value].sort((a, b) => {
         let valA = a[sortKey.value]
         let valB = b[sortKey.value]
         
@@ -943,75 +1003,138 @@ function getSparklinePath(points: number[]): string {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="holding in sortedPortfolio" :key="holding.id" class="clickable-row">
-                                    <td style="position: relative;">
-                                        <!-- Color Accent Bar -->
-                                        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;" 
-                                             :style="{ background: getRandomColor(holding.scheme_name) }"></div>
-                                        <div style="padding-left: 1rem;" @click="$router.push(`/mutual-funds/${holding.id}`)">
-                                                <div class="font-medium text-gray-900 line-clamp-1" :title="holding.scheme_name">{{ holding.scheme_name }}</div>
-                                                <div style="display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem;">
-                                                    <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #f1f5f9; color: #334155;">
-                                                        {{ holding.folio_number || 'No Folio' }}
-                                                    </span>
-                                                    <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #e0e7ff; color: #4338ca; font-family: monospace;">
-                                                        {{ holding.scheme_code }}
-                                                    </span>
-                                                    <!-- 30-Day NAV Sparkline -->
-                                                    <svg v-if="holding.sparkline && holding.sparkline.length > 1" width="50" height="16" style="margin-left: 0.25rem;">
-                                                        <polyline 
-                                                            :points="generateSparklinePoints(holding.sparkline, 50, 16)" 
-                                                            fill="none" 
-                                                            :stroke="holding.profit_loss >= 0 ? '#10b981' : '#ef4444'" 
-                                                            stroke-width="1.5"
-                                                            stroke-linecap="round"
-                                                            stroke-linejoin="round"
-                                                        />
-                                                    </svg>
+                                <template v-for="item in sortedPortfolio" :key="item.id">
+                                    <tr class="clickable-row" :class="{ 'bg-indigo-50/30': item.has_multiple && expandedGroups.has(item.id) }">
+                                        <td style="position: relative;">
+                                            <!-- Color Accent Bar -->
+                                            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;" 
+                                                 :style="{ background: getRandomColor(item.scheme_name) }"></div>
+                                            
+                                            <div class="flex items-start">
+                                                <!-- Expand Toggle for Groups -->
+                                                <button 
+                                                    v-if="item.has_multiple"
+                                                    @click.stop="toggleGroup(item.id)"
+                                                    class="mr-2 mt-1 p-0.5 rounded hover:bg-gray-200 text-gray-500 transition-colors"
+                                                >
+                                                    <ChevronDown v-if="expandedGroups.has(item.id)" :size="16" />
+                                                    <ChevronRight v-else :size="16" />
+                                                </button>
+                                                <div v-else class="w-6 mr-2"></div> <!-- Spacer -->
+
+                                                <div @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)">
+                                                    <div class="font-medium text-gray-900 line-clamp-1 group-hover:text-indigo-600 transition-colors" :title="item.scheme_name">
+                                                        {{ item.scheme_name }}
+                                                        <span v-if="item.has_multiple" class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                                                            GROUP
+                                                        </span>
+                                                    </div>
+                                                    <div style="display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem;">
+                                                        <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #f1f5f9; color: #334155;">
+                                                            {{ item.folio_number || 'No Folio' }}
+                                                        </span>
+                                                        <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #e0e7ff; color: #4338ca; font-family: monospace;">
+                                                            {{ item.scheme_code }}
+                                                        </span>
+                                                        <!-- 30-Day NAV Sparkline -->
+                                                        <svg v-if="item.sparkline && item.sparkline.length > 1" width="50" height="16" style="margin-left: 0.25rem;">
+                                                            <polyline 
+                                                                :points="generateSparklinePoints(item.sparkline, 50, 16)" 
+                                                                fill="none" 
+                                                                :stroke="item.profit_loss >= 0 ? '#10b981' : '#ef4444'" 
+                                                                stroke-width="1.5"
+                                                                stroke-linecap="round"
+                                                                stroke-linejoin="round"
+                                                            />
+                                                        </svg>
+                                                    </div>
                                                 </div>
-                                        </div>
-                                    </td>
-                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">
-                                        <div class="flex items-center gap-2">
-                                            <div v-if="holding.user_id && familyMembers.find(u => u.id === holding.user_id)" 
-                                                 class="member-avatar-mini" 
-                                                 :title="familyMembers.find(u => u.id === holding.user_id)?.full_name">
-                                                {{ familyMembers.find(u => u.id === holding.user_id)?.avatar || '👤' }}
                                             </div>
-                                            <span v-else class="text-[10px] text-gray-400">Self</span>
-                                        </div>
-                                    </td>
-                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ holding.units.toFixed(3) }}</td>
-                                    <td class="tabular-nums text-gray-500">{{ formatAmount(holding.average_price) }}</td>
-                                    <td class="tabular-nums" @click="$router.push(`/mutual-funds/${holding.id}`)">
-                                        <div class="text-gray-900 font-medium">{{ formatAmount(holding.last_nav) }}</div>
-                                    </td>
-                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.invested_value) }}</td>
-                                    <td class="tabular-nums font-bold text-gray-900" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.current_value) }}</td>
-                                    <td>
-                                        <div 
-                                            class="inline-flex flex-col items-end px-3 py-1.5 rounded-full border text-right min-w-[90px] shadow-sm"
-                                            :class="Number(holding.profit_loss) >= 0 
-                                                ? 'bg-green-100 text-green-800 border-green-200' 
-                                                : 'bg-red-100 text-red-800 border-red-200'"
-                                        >
-                                            <div class="font-bold text-xs leading-none">{{ Number(holding.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(holding.profit_loss) }}</div>
-                                            <div class="text-[10px] opacity-90 font-bold mt-0.5 leading-none">
-                                                {{ ((Number(holding.profit_loss) / (Number(holding.invested_value) || 1)) * 100).toFixed(2) }}%
+                                        </td>
+                                        <td class="tabular-nums font-medium text-gray-700">
+                                            <div class="flex items-center gap-2">
+                                                <div v-if="item.has_multiple" class="flex -space-x-2">
+                                                    <div class="w-6 h-6 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px]">👥</div>
+                                                </div>
+                                                <div v-else-if="item.user_id && familyMembers.find(u => u.id === item.user_id)" 
+                                                     class="member-avatar-mini" 
+                                                     :title="familyMembers.find(u => u.id === item.user_id)?.full_name">
+                                                    {{ familyMembers.find(u => u.id === item.user_id)?.avatar || '👤' }}
+                                                </div>
+                                                <span v-else class="text-[10px] text-gray-400">Self</span>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td style="white-space: nowrap; padding-left: 0.5rem; padding-right: 0.5rem;">
-                                        <div class="flex items-center justify-end gap-2 flex-nowrap">
-                                            <button class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100" @click="confirmDelete(holding)" title="Remove Holding">
-                                                <Trash2 :size="14" />
-                                            </button>
-                                            <button class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100" @click="$router.push(`/mutual-funds/${holding.id}`)" title="View Details">
-                                                <EyeIconMain :size="14" />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
+                                        </td>
+                                        <td class="tabular-nums font-medium text-gray-700">{{ item.units.toFixed(3) }}</td>
+                                        <td class="tabular-nums text-gray-500">{{ formatAmount(item.average_price) }}</td>
+                                        <td class="tabular-nums">
+                                            <div class="text-gray-900 font-medium">{{ formatAmount(item.last_nav) }}</div>
+                                        </td>
+                                        <td class="tabular-nums font-medium text-gray-700">{{ formatAmount(item.invested_value) }}</td>
+                                        <td class="tabular-nums font-bold text-gray-900">{{ formatAmount(item.current_value) }}</td>
+                                        <td>
+                                            <div 
+                                                class="inline-flex flex-col items-end px-3 py-1.5 rounded-full border text-right min-w-[90px] shadow-sm"
+                                                :class="Number(item.profit_loss) >= 0 
+                                                    ? 'bg-green-100 text-green-800 border-green-200' 
+                                                    : 'bg-red-100 text-red-800 border-red-200'"
+                                            >
+                                                <div class="font-bold text-xs leading-none">{{ Number(item.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(item.profit_loss) }}</div>
+                                                <div class="text-[10px] opacity-90 font-bold mt-0.5 leading-none">
+                                                    {{ ((Number(item.profit_loss) / (Number(item.invested_value) || 1)) * 100).toFixed(2) }}%
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td style="white-space: nowrap; padding-left: 0.5rem; padding-right: 0.5rem;">
+                                            <div class="flex items-center justify-end gap-2 flex-nowrap">
+                                                <button v-if="!item.has_multiple" class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100" @click="confirmDelete(item)" title="Remove Holding">
+                                                    <Trash2 :size="14" />
+                                                </button>
+                                                <button class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100" @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)" title="View Details">
+                                                    <EyeIconMain :size="14" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+
+                                    <!-- Child Rows -->
+                                    <template v-if="item.has_multiple && expandedGroups.has(item.id)">
+                                        <tr v-for="child in item.children" :key="child.id" class="bg-gray-50 hover:bg-gray-100 transition-colors">
+                                            <td class="pl-12 py-2 relative">
+                                                <div class="absolute left-8 top-0 bottom-0 w-px bg-gray-200 border-l border-dashed border-gray-300"></div>
+                                                <div class="flex items-center gap-2" @click="$router.push(`/mutual-funds/${child.id}`)">
+                                                    <div class="text-xs font-mono text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                                                        {{ child.folio_number || 'No Folio' }}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2">
+                                                <div class="flex items-center gap-2 opacity-80">
+                                                    <div v-if="child.user_id && familyMembers.find(u => u.id === child.user_id)" 
+                                                         class="member-avatar-mini w-5 h-5 text-[9px]" 
+                                                         :title="familyMembers.find(u => u.id === child.user_id)?.full_name">
+                                                        {{ familyMembers.find(u => u.id === child.user_id)?.avatar || '👤' }}
+                                                    </div>
+                                                    <span v-else class="text-[10px] text-gray-400">Self</span>
+                                                </div>
+                                            </td>
+                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{ child.units.toFixed(3) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{ formatAmount(child.average_price) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{ formatAmount(child.last_nav) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{ formatAmount(child.invested_value) }}</td>
+                                            <td class="tabular-nums text-xs font-semibold text-gray-800 py-2">{{ formatAmount(child.current_value) }}</td>
+                                            <td class="py-2">
+                                                <span class="text-xs font-semibold" :class="Number(child.profit_loss) >= 0 ? 'text-green-600' : 'text-red-600'">
+                                                    {{ Number(child.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(child.profit_loss) }}
+                                                </span>
+                                            </td>
+                                            <td class="px-2 py-2 text-right">
+                                                 <button class="text-xs text-indigo-500 hover:underline" @click="$router.push(`/mutual-funds/${child.id}`)">
+                                                    Details
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </template>
                             </tbody>
                         </table>
                     </div>
