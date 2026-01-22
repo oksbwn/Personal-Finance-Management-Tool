@@ -12,13 +12,16 @@ import {
     Bell, 
     LogOut,
     ChevronLeft,
-    ChevronRight,
-    User
+    ChevronRight
 } from 'lucide-vue-next'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
+
+// Version info from Vite defines
+const appVersion = __APP_VERSION__
+const appBuild = __APP_BUILD__
 
 // Sidebar State
 const isSidebarCollapsed = ref(true)
@@ -145,6 +148,18 @@ onUnmounted(() => {
                         <span class="label" v-if="!isSidebarCollapsed">Settings</span>
                     </router-link>
                 </nav>
+
+                <!-- Version Info -->
+                <div class="sidebar-footer">
+                    <div class="version-tag" :title="`Build: v${appVersion}-b${appBuild}`">
+                        <template v-if="!isSidebarCollapsed">
+                            v{{ appVersion }}-b{{ appBuild }}
+                        </template>
+                        <template v-else>
+                            v{{ appVersion.split('.')[0] }}
+                        </template>
+                    </div>
+                </div>
             </aside>
             
             <main class="main-content">
@@ -373,4 +388,34 @@ onUnmounted(() => {
 .sidebar.collapsed .nav-item .icon { margin-right: 0; }
 .main-content { flex: 1; overflow-y: auto; background: var(--color-background); padding: var(--spacing-lg); }
 .page-container { max-width: 1600px; margin: 0 auto; }
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 1.25rem 0.75rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.version-tag {
+    font-size: 0.6rem;
+    color: var(--color-text-muted);
+    font-weight: 700;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--color-background);
+    padding: 0.25rem 0.6rem;
+    border-radius: 2rem;
+    border: 1px solid var(--color-border);
+    transition: all 0.2s ease;
+    cursor: default;
+    user-select: none;
+}
+
+.version-tag:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary-light);
+    background: white;
+}
 </style>

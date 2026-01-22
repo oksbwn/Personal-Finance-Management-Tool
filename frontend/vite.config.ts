@@ -1,10 +1,33 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import { execSync } from 'child_process'
+import fs from 'fs'
+
+// Read version.json from root
+let version = '0.0.0'
+try {
+  const versionData = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../version.json'), 'utf-8'))
+  version = `${versionData.major}.${versionData.minor}.${versionData.patch}`
+} catch (e) {
+  console.warn('Could not read version.json')
+}
+
+// Get latest 4 digits of master commit
+let build = '0000'
+try {
+  build = execSync('git rev-parse master').toString().trim().substring(0, 4)
+} catch (e) {
+  console.warn('Could not get git build number, using fallback.')
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    '__APP_VERSION__': JSON.stringify(version),
+    '__APP_BUILD__': JSON.stringify(build)
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
@@ -12,10 +35,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-        '/api': {
-            target: 'http://127.0.0.1:8000',
-            changeOrigin: true,
-        }
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      }
     }
   }
 })
