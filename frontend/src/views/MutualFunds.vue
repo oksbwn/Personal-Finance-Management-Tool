@@ -18,7 +18,9 @@ import {
     Mail,
     ChevronDown,
     Trash2,
-    Eye as EyeIconMain
+    Eye as EyeIconMain,
+    ArrowUp,
+    ArrowDown
 } from 'lucide-vue-next'
 import { useCurrency } from '@/composables/useCurrency'
 import { marked } from 'marked'
@@ -257,6 +259,53 @@ async function cleanupDuplicates() {
         notify.error('Cleanup failed. See console for details.')
     }
 }
+
+// Sorting Logic for Portfolio Holdings
+const sortKey = ref('current_value')
+const sortDesc = ref(true)
+
+function handleSort(key: string) {
+    if (sortKey.value === key) {
+        sortDesc.value = !sortDesc.value
+    } else {
+        sortKey.value = key
+        sortDesc.value = true // Default to descending for new columns as numbers are usually what we sort
+    }
+}
+
+const sortedPortfolio = computed(() => {
+    return [...portfolio.value].sort((a, b) => {
+        let valA = a[sortKey.value]
+        let valB = b[sortKey.value]
+        
+        // Handle numbers
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            return sortDesc.value ? valB - valA : valA - valB
+        }
+        
+        // Handle strings
+        if (typeof valA === 'string' && typeof valB === 'string') {
+            return sortDesc.value 
+                ? valB.localeCompare(valA) 
+                : valA.localeCompare(valB)
+        }
+        
+        return 0
+    })
+})
+
+const latestNavDate = computed(() => {
+    if (!portfolio.value || portfolio.value.length === 0) return null
+    
+    // Find the latest date string
+    let maxDate = ''
+    for (const h of portfolio.value) {
+        if (h.last_updated && h.last_updated > maxDate) {
+            maxDate = h.last_updated
+        }
+    }
+    return maxDate
+})
 
 const holdingToDelete = ref<any>(null)
 const showDeleteConfirm = ref(false)
@@ -807,7 +856,10 @@ function getSparklinePath(points: number[]): string {
                 <!-- Holdings List (Standard Table) -->
                 <div class="analytics-card full-width">
                      <div class="card-header-flex">
-                        <h3 class="card-title">Portfolio Holdings</h3>
+                        <div>
+                            <h3 class="card-title">Portfolio Holdings</h3>
+                            <p v-if="latestNavDate" class="text-xs text-gray-400 font-medium mt-0.5">NAV as of {{ latestNavDate }}</p>
+                        </div>
                         <div class="card-controls">
                              <!-- Optional controls here -->
                         </div>
@@ -822,20 +874,76 @@ function getSparklinePath(points: number[]): string {
                         
                         <table v-else class="modern-table">
                             <thead>
-                                <tr>
-                                    <th style="width: 32%">Fund Name</th>
-                                    <th>Member</th>
-                                    <th>Units</th>
-                                    <th>Avg Price</th>
-                                    <th>Current NAV</th>
-                                    <th class="tabular-nums">Invested</th>
-                                    <th class="tabular-nums">Current Value</th>
-                                    <th>Returns</th>
+                                <tr class="bg-gray-50/50 border-b border-gray-100">
+                                    <th style="width: 32%" @click="handleSort('scheme_name')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'scheme_name' }">
+                                            Fund Name
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'scheme_name' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'scheme_name'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none">Member</th>
+                                    <th @click="handleSort('units')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'units' }">
+                                            Units
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'units' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'units'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th @click="handleSort('average_price')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'average_price' }">
+                                            Avg Price
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'average_price' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'average_price'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th @click="handleSort('last_nav')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'last_nav' }">
+                                            Current NAV
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'last_nav' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'last_nav'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('invested_value')">
+                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'invested_value' }">
+                                            Invested
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'invested_value' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'invested_value'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('current_value')">
+                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'current_value' }">
+                                            Current Value
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'current_value' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'current_value'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('profit_loss')">
+                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'profit_loss' }">
+                                            Returns
+                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'profit_loss' }">
+                                                <ArrowDown v-if="sortDesc || sortKey !== 'profit_loss'" :size="14" />
+                                                <ArrowUp v-else :size="14" />
+                                            </span>
+                                        </div>
+                                    </th>
                                     <th style="width: 140px"></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="holding in portfolio" :key="holding.id" class="clickable-row">
+                                <tr v-for="holding in sortedPortfolio" :key="holding.id" class="clickable-row">
                                     <td style="position: relative;">
                                         <!-- Color Accent Bar -->
                                         <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;" 
@@ -877,15 +985,19 @@ function getSparklinePath(points: number[]): string {
                                     <td class="tabular-nums text-gray-500">{{ formatAmount(holding.average_price) }}</td>
                                     <td class="tabular-nums" @click="$router.push(`/mutual-funds/${holding.id}`)">
                                         <div class="text-gray-900 font-medium">{{ formatAmount(holding.last_nav) }}</div>
-                                        <div class="text-[9px] text-gray-400 font-medium">{{ holding.last_updated }}</div>
                                     </td>
                                     <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.invested_value) }}</td>
                                     <td class="tabular-nums font-bold text-gray-900" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.current_value) }}</td>
                                     <td>
-                                        <div :class="holding.profit_loss >= 0 ? 'text-emerald-600' : 'text-rose-600'">
-                                            <div class="font-bold text-xs">{{ holding.profit_loss >= 0 ? '+' : '' }}{{ formatAmount(holding.profit_loss) }}</div>
-                                            <div class="text-[10px] opacity-80 font-bold">
-                                                {{ ((holding.profit_loss / (holding.invested_value || 1)) * 100).toFixed(2) }}%
+                                        <div 
+                                            class="inline-flex flex-col items-end px-3 py-1.5 rounded-full border text-right min-w-[90px] shadow-sm"
+                                            :class="Number(holding.profit_loss) >= 0 
+                                                ? 'bg-green-100 text-green-800 border-green-200' 
+                                                : 'bg-red-100 text-red-800 border-red-200'"
+                                        >
+                                            <div class="font-bold text-xs leading-none">{{ Number(holding.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(holding.profit_loss) }}</div>
+                                            <div class="text-[10px] opacity-90 font-bold mt-0.5 leading-none">
+                                                {{ ((Number(holding.profit_loss) / (Number(holding.invested_value) || 1)) * 100).toFixed(2) }}%
                                             </div>
                                         </div>
                                     </td>
