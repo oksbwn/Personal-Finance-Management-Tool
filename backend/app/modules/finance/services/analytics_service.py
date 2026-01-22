@@ -213,7 +213,7 @@ class AnalyticsService:
             })
             
             # Step back: subtract todays net transactions to get yesterday's closing balance
-            cursor_balance -= txn_by_date[target_date]
+            cursor_balance -= txn_by_date.get(target_date, 0)
             
         return timeline[::-1] # Chronological
 
