@@ -29,7 +29,7 @@ async function handleLogin() {
     <div class="auth-container">
         <div class="auth-card">
             <h1>Sign In</h1>
-            <p class="subtitle">Welcome back to Family Finance</p>
+            <p class="subtitle">Welcome back to WealthFam</p>
             
             <form @submit.prevent="handleLogin">
                 <div class="form-group">

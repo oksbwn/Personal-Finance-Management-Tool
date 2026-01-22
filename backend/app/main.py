@@ -85,4 +85,4 @@ app = create_application()
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to Family Finance Platform API"}
+    return {"message": "Welcome to WealthFam API"}

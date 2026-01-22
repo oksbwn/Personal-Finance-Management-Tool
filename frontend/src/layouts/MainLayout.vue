@@ -65,8 +65,8 @@ onUnmounted(() => {
         <header class="global-header glass">
             <div class="header-left">
                 <router-link to="/" class="brand">
-                    <img src="/logo.png" alt="Finerra Logo" class="logo-image" />
-                    <span class="brand-text">Finerra</span>
+                    <img src="/logo.png" alt="WealthFam Logo" class="logo-image" />
+                    <span class="brand-text">WealthFam</span>
                     <span class="brand-tagline">Refine Your Finances</span>
                 </router-link>
             </div>

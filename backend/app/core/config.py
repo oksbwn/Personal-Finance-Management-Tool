@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Family Finance Platform"
+    PROJECT_NAME: str = "WealthFam"
     API_V1_STR: str = "/api/v1"
     
     # Database

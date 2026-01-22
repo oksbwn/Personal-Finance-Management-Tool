@@ -44,7 +44,7 @@ async function handleRegister() {
     <div class="auth-container">
         <div class="auth-card">
             <h1>Create Account</h1>
-            <p class="subtitle">Start your family finance journey</p>
+            <p class="subtitle">Start your WealthFam journey</p>
             
             <form @submit.prevent="handleRegister">
                 <div class="form-group">
