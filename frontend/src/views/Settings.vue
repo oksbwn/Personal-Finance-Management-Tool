@@ -633,7 +633,7 @@ async function saveRule() {
     }
 }
 
-// --- Category Functions ---
+
 function openAddCategoryModal() {
     isEditingCategory.value = false
     editingCategoryId.value = null
@@ -844,31 +844,7 @@ async function handleMemberSubmit() {
                 </div>
 
                 <div class="header-right-actions">
-                    <div class="search-box-compact">
-                        <span class="search-icon">🔍</span>
-                        <input 
-                            v-model="searchQuery" 
-                            placeholder="Quick search..." 
-                            class="search-input-compact"
-                        />
-                    </div>
-                    <div class="action-buttons-group">
-                        <button v-if="activeTab === 'accounts'" @click="openCreateAccountModal" class="btn-primary-glow">
-                            <span class="btn-icon-plus">+</span> Add Account
-                        </button>
-                        <button v-if="activeTab === 'emails'" @click="showEmailModal = true" class="btn-primary-glow">
-                            <span class="btn-icon-plus">+</span> Add Email
-                        </button>
-                        <button v-if="activeTab === 'rules'" @click="openAddModal" class="btn-primary-glow">
-                            <span class="btn-icon-plus">+</span> New Rule
-                        </button>
-                        <button v-if="activeTab === 'categories'" @click="openAddCategoryModal" class="btn-primary-glow">
-                            <span class="btn-icon-plus">+</span> New Category
-                        </button>
-                        <button v-if="activeTab === 'tenants'" @click="openAddMemberModal" class="btn-primary-glow">
-                            <span class="btn-icon-plus">+</span> Add Member
-                        </button>
-                    </div>
+                    <!-- All tabs now have inline search and add cards -->
                 </div>
             </div>
 
@@ -950,74 +926,132 @@ async function handleMemberSubmit() {
                         </div>
                    </div>
 
-                    <!-- Untrusted Accounts -->
-                    <div v-if="untrustedAccounts.length > 0" class="alert-section">
-                        <h2 class="section-title warning">⚠️ New Detected Accounts</h2>
+                    <!-- Untrusted Accounts (Premium Style) -->
+                    <div v-if="untrustedAccounts.length > 0" class="alert-section mb-8">
+                        <div class="header-with-badge match-header mb-4">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #b45309;">⚠️ New Detected Accounts</h3>
+                            <span class="pulse-status-badge" style="background: #fffbeb; color: #b45309;">{{ untrustedAccounts.length }} Action Needed</span>
+                        </div>
+                        
                         <div class="settings-grid">
-                            <div v-for="acc in untrustedAccounts" :key="acc.id" class="glass-card untrusted pulse-border">
-                                <div class="card-top">
-                                    <div class="card-main">
-                                        <div class="card-type-header">
-                                            <span class="type-icon">{{ getAccountTypeIcon(acc.type) }}</span>
-                                            <span class="card-label">Untrusted Source</span>
-                                        </div>
-                                        <h3 class="card-name">{{ acc.name }}</h3>
+                            <div v-for="acc in untrustedAccounts" :key="acc.id" class="glass-card account-card-premium untrusted-card">
+                                <div class="acc-card-top">
+                                    <div class="acc-icon-wrapper" :class="acc.type.toLowerCase()">
+                                        {{ getAccountTypeIcon(acc.type) }}
                                     </div>
-                                    <div class="card-actions-row">
-                                        <button @click="deleteAccountRequest(acc)" class="btn-icon-circle danger-subtle">🗑️</button>
-                                        <button @click="openEditAccountModal(acc, true)" class="btn-verify">Verify</button>
+                                    <div class="acc-actions" style="gap: 0.5rem;">
+                                        <button @click="openEditAccountModal(acc, true)" class="btn-icon-subtle success" title="Verify Account">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                                <path d="M20 6L9 17l-5-5"/>
+                                            </svg>
+                                        </button>
+                                        <button @click="deleteAccountRequest(acc)" class="btn-icon-subtle danger" title="Reject / Remove">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M18 6L6 18M6 6l12 12"/>
+                                            </svg>
+                                        </button>
                                     </div>
                                 </div>
-                                <div class="card-bottom">
-                                    <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
-                                        <span class="card-balance">{{ formatAmount(acc.balance || 0) }} used</span>
-                                        <span v-if="acc.credit_limit" class="card-meta">{{ formatAmount(acc.credit_limit - (acc.balance || 0)) }} left</span>
+
+                                <div class="acc-card-main">
+                                    <div class="acc-label-row">
+                                        <span class="acc-type">{{ getAccountTypeLabel(acc.type) }}</span>
+                                        <span class="status-badge-mini inactive">Untrusted</span>
                                     </div>
-                                    <span v-else class="card-balance">{{ formatAmount(acc.balance || 0) }}</span>
-                                    <span class="card-meta">Auto-Detected</span>
+                                    <h3 class="acc-name">{{ acc.name }}</h3>
+                                </div>
+
+                                <div class="acc-card-footer">
+                                    <div class="acc-balance-group">
+                                        <span class="acc-balance-label">Balance</span>
+                                        <span class="acc-balance-val">{{ formatAmount(acc.balance || 0) }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Verified Accounts -->
+                    <!-- Verified Accounts Control Bar (Search Left, Title Right) -->
+                    <div class="account-control-bar mt-8 mb-6">
+                        <!-- Search on Left -->
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            </svg>
+                            <input 
+                                type="text" 
+                                v-model="searchQuery" 
+                                placeholder="Search accounts..." 
+                                class="search-input"
+                            >
+                        </div>
+
+                         <!-- Title on Right -->
+                         <div class="header-with-badge" style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">Tracked Accounts</h3>
+                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{ verifiedAccounts.length }} Active</span>
+                         </div>
+                    </div>
+
+                    <!-- Verified Accounts Grid -->
                     <div class="settings-grid">
-                        <div v-for="acc in verifiedAccounts" :key="acc.id" class="glass-card premium-hover">
-                            <div class="card-top">
-                                <div class="card-main">
-                                    <div class="card-type-header">
-                                        <span class="type-icon">{{ getAccountTypeIcon(acc.type) }}</span>
-                                        <span class="card-label">{{ getAccountTypeLabel(acc.type) }}</span>
-                                    </div>
-                                    <h3 class="card-name">{{ acc.name }}</h3>
+                        <div v-for="acc in verifiedAccounts" :key="acc.id" class="glass-card account-card-premium" :class="{'verified-highlight': acc.is_verified}" @click="openEditAccountModal(acc)">
+                            <div class="acc-card-top">
+                                <div class="acc-icon-wrapper" :class="acc.type.toLowerCase()">
+                                    {{ getAccountTypeIcon(acc.type) }}
                                 </div>
-                                <div class="card-actions">
-                                    <button @click="openEditAccountModal(acc)" class="btn-icon-circle">✏️</button>
-                                    <button @click="deleteAccountRequest(acc)" class="btn-icon-circle danger-subtle">🗑️</button>
+                                <div class="acc-actions">
+                                    <!-- Edit Icon replaced button -->
+                                    <button class="btn-icon-subtle" title="Edit Options">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
-                            <div class="card-bottom">
-                                <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
-                                    <span class="card-balance">{{ formatAmount(acc.balance || 0) }} <span class="card-sub-label">used</span></span>
-                                    <span v-if="acc.credit_limit" class="card-available-info">{{ formatAmount(acc.credit_limit - (acc.balance || 0)) }} <span class="card-sub-label">left</span></span>
+
+                            <div class="acc-card-main">
+                                <h3 class="acc-name">{{ acc.name }}</h3>
+                                <div class="acc-meta">
+                                    <span class="acc-type">{{ getAccountTypeLabel(acc.type) }}</span>
+                                    <span v-if="acc.account_mask" class="acc-mask">••{{ acc.account_mask }}</span>
                                 </div>
-                                <span v-else class="card-balance">{{ formatAmount(acc.balance || 0) }}</span>
-                                    <div class="card-pills">
-                                        <span class="owner-badge">
-                                            {{ resolveOwnerAvatar(acc) }} {{ resolveOwnerName(acc) }}
-                                        </span>
-                                        <span v-if="acc.account_mask" class="mask-badge">••{{ acc.account_mask }}</span>
+                                <div class="acc-owner-row mt-3">
+                                    <div class="owner-pill">
+                                        <span class="owner-avatar-xs">{{ resolveOwnerAvatar(acc) }}</span>
+                                        <span class="owner-name-xs">{{ resolveOwnerName(acc) }}</span>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div class="acc-card-footer">
+                                <div class="acc-balance-group">
+                                    <span class="acc-balance-label">Current Balance</span>
+                                    <span class="acc-balance-val" :class="{'text-red': Number(acc.balance) < 0 && acc.type !== 'CREDIT_CARD'}">
+                                        {{ formatAmount(Math.abs(Number(acc.balance || 0)), acc.currency) }}
+                                        <span v-if="acc.type === 'CREDIT_CARD'" class="balance-tag">used</span>
+                                    </span>
+                                </div>
+                                
+                                <div v-if="acc.type === 'CREDIT_CARD' && acc.credit_limit" class="acc-limit-group">
+                                    <div class="limit-bar-bg">
+                                        <div class="limit-bar-fill" :style="{ width: Math.min(((Math.abs(Number(acc.balance || 0))) / Number(acc.credit_limit)) * 100, 100) + '%' }"></div>
+                                    </div>
+                                    <span class="limit-text">{{ Math.round((Math.abs(Number(acc.balance || 0)) / Number(acc.credit_limit)) * 100) }}% utilized</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div v-if="verifiedAccounts.length === 0 && !searchQuery" class="empty-card" @click="openCreateAccountModal">
-                            <span class="empty-plus">+</span>
-                            <p>Track a new account</p>
+                        <!-- Add New Card (Empty State) -->
+                        <div v-if="!searchQuery" class="glass-card add-account-card" @click="openCreateAccountModal">
+                            <div class="add-icon-circle">+</div>
+                            <span>Add New Account</span>
                         </div>
-                        <div v-else-if="verifiedAccounts.length === 0" class="empty-placeholder">
-                            <p>No accounts match your search.</p>
-                        </div>
+                    </div>
+                    
+                    <div v-if="verifiedAccounts.length === 0 && searchQuery" class="empty-placeholder">
+                        <p>No accounts match "{{ searchQuery }}"</p>
                     </div>
                 </div>
 
@@ -1025,6 +1059,25 @@ async function handleMemberSubmit() {
 
                 <!-- EMAILS TAB - PREMIUM REDESIGN -->
                 <div v-if="activeTab === 'emails'" class="tab-content animate-in">
+                    <!-- Search Bar -->
+                    <div class="account-control-bar mb-6">
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            </svg>
+                            <input 
+                                type="text" 
+                                v-model="searchQuery" 
+                                placeholder="Search email accounts..." 
+                                class="search-input"
+                            >
+                        </div>
+                        <div class="header-with-badge" style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">Email Accounts</h3>
+                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{ emailConfigs.length }} Total</span>
+                        </div>
+                    </div>
+
                 <div v-if="syncStatus && syncStatus.status !== 'running'" :class="['sync-alert-premium', syncStatus.status]">
                     <div class="alert-icon">
                         {{ syncStatus.status === 'completed' ? '✅' : '❌' }}
@@ -1136,11 +1189,17 @@ async function handleMemberSubmit() {
                             </span>
                             <span v-else>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                                    <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/>
                                 </svg>
                                 Sync Now
                             </span>
                         </button>
+                    </div>
+
+                    <!-- Add New Email Card -->
+                    <div v-if="emailConfigs.length > 0" class="glass-card add-account-card" @click="showEmailModal = true">
+                        <div class="add-icon-circle">+</div>
+                        <span>Add Email Account</span>
                     </div>
 
                     <div v-if="emailConfigs.length === 0" class="empty-email-state">
@@ -1151,13 +1210,6 @@ async function handleMemberSubmit() {
                         </div>
                         <h3>No Email Accounts Linked</h3>
                         <p>Connect your bank email to automatically sync transactions</p>
-                        <button @click="showEmailModal = true" class="empty-cta">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="12" y1="5" x2="12" y2="19"/>
-                                <line x1="5" y1="12" x2="19" y2="12"/>
-                            </svg>
-                            Add Email Account
-                        </button>
                     </div>
                 </div>
             </div>
@@ -1214,11 +1266,36 @@ async function handleMemberSubmit() {
                             <!-- Future: Add 'Txns' or 'Spent' here -->
                         </div>
                     </div>
+
+                    <!-- Add New Member Card -->
+                    <div class="glass-card add-account-card" @click="openAddMemberModal">
+                        <div class="add-icon-circle">+</div>
+                        <span>Add Family Member</span>
+                    </div>
                 </div>
             </div>
 
             <!-- RULES TAB -->
             <div v-if="activeTab === 'rules'" class="tab-content animate-in">
+                <!-- Search Bar -->
+                <div class="account-control-bar mb-6">
+                    <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+                            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        <input 
+                            type="text" 
+                            v-model="searchQuery" 
+                            placeholder="Search rules..." 
+                            class="search-input"
+                        >
+                    </div>
+                    <div class="header-with-badge" style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                        <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">Rules</h3>
+                        <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{ filteredRules.length }} Total</span>
+                    </div>
+                </div>
+
                 <!-- Suggestions -->
                 <div v-if="suggestions.length > 0 && !searchQuery" class="alert-section">
                     <h2 class="section-title info">💡 Smart Suggestions</h2>
@@ -1257,6 +1334,12 @@ async function handleMemberSubmit() {
                             <span v-for="k in rule.keywords" :key="k" class="keyword-tag">{{ k }}</span>
                         </div>
                     </div>
+
+                    <!-- Add New Rule Card -->
+                    <div v-if="!searchQuery" class="glass-card add-account-card" @click="openAddModal">
+                        <div class="add-icon-circle">+</div>
+                        <span>Add New Rule</span>
+                    </div>
                 </div>
                 
                 <div v-if="filteredRules.length === 0" class="empty-placeholder">
@@ -1266,17 +1349,48 @@ async function handleMemberSubmit() {
 
             <!-- CATEGORIES TAB -->
             <div v-if="activeTab === 'categories'" class="tab-content animate-in">
+                <!-- Search Bar -->
+                <div class="account-control-bar mb-6">
+                    <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+                            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        <input 
+                            type="text" 
+                            v-model="searchQuery" 
+                            placeholder="Search categories..." 
+                            class="search-input"
+                        >
+                    </div>
+                    <div class="header-with-badge" style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                        <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">Categories</h3>
+                        <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{ categories.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())).length }} Total</span>
+                    </div>
+                </div>
+
                 <div class="settings-grid">
-                    <div v-for="cat in categories" :key="cat.id" class="glass-card category" :style="{ borderLeft: `4px solid ${cat.color || '#e5e7eb'}` }">
-                        <div class="cat-body">
-                            <span class="cat-icon-large">{{ cat.icon }}</span>
-                            <h3 class="card-name">{{ cat.name }}</h3>
+                    <div v-for="cat in categories.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))" :key="cat.id" class="glass-card category-card" :style="{ borderLeft: `4px solid ${cat.color || '#e5e7eb'}` }">
+                        <div class="category-card-content">
+                            <div class="cat-icon-wrapper" :style="{ background: `${cat.color || '#e5e7eb'}15` }">
+                                <span class="cat-icon-large">{{ cat.icon }}</span>
+                            </div>
+                            <h3 class="cat-name">{{ cat.name }}</h3>
                         </div>
                         <div class="card-actions">
                             <button @click="openEditCategoryModal(cat)" class="btn-icon-circle">✏️</button>
                             <button @click="deleteCategory(cat.id)" class="btn-icon-circle danger">🗑️</button>
                         </div>
                     </div>
+
+                    <!-- Add New Category Card -->
+                    <div v-if="!searchQuery" class="glass-card add-account-card" @click="openAddCategoryModal">
+                        <div class="add-icon-circle">+</div>
+                        <span>Add Category</span>
+                    </div>
+                </div>
+
+                <div v-if="categories.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && searchQuery" class="empty-placeholder">
+                    <p>No categories match "{{ searchQuery }}"</p>
                 </div>
             </div>
             <!-- AI INTEGRATION TAB (RE-DESIGNED) -->
@@ -2240,6 +2354,13 @@ async function handleMemberSubmit() {
     margin-bottom: 1.5rem;
 }
 
+.header-with-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
 .premium-hover:hover {
     transform: translateY(-2px) scale(1.01);
     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
@@ -2297,6 +2418,46 @@ async function handleMemberSubmit() {
 }
 
 .empty-plus { font-size: 1.5rem; font-weight: 300; margin-bottom: 0.25rem; }
+
+/* Category Card Styling */
+.category-card {
+    padding: 1.25rem;
+    transition: all 0.2s ease;
+}
+
+.category-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.category-card-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.cat-icon-wrapper {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.cat-icon-large {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.cat-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+    margin: 0;
+}
 
 /* Rules Styling */
 .rule-flow {
@@ -3543,6 +3704,57 @@ input:checked + .slider-premium:before { transform: translateX(24px); }
     box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
 }
 
+/* Email Sync Button */
+.sync-btn-premium {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.75rem 1.25rem;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.sync-btn-premium:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3);
+}
+
+.sync-btn-premium:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sync-btn-premium span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-glow-effect {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+}
+
+.btn-spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* ==================== PREMIUM EMAIL MODAL - CLEAN LIGHT THEME ==================== */
 .email-modal-premium {
     background: #ffffff;
@@ -3985,7 +4197,297 @@ input:checked + .slider-premium:before { transform: translateX(24px); }
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 1px 2px rgba(99, 102, 241, 0.1);
+    box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
+}
+
+.btn-primary-premium:hover {
+    background: #4f46e5;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 8px -1px rgba(99, 102, 241, 0.3);
+}
+
+/* --- Premium Accounts Tab CSS --- */
+.account-card-premium {
+    position: relative;
+    padding: 1.25rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: linear-gradient(145deg, rgba(255,255,255,0.7), rgba(255,255,255,0.4));
+}
+
+.account-card-premium:hover {
+    transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+}
+
+.acc-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.acc-icon-wrapper {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    background: #f3f4f6;
+    color: #4b5563;
+}
+.acc-icon-wrapper.bank { background: #dbeafe; color: #1e40af; }
+.acc-icon-wrapper.credit_card { background: #fee2e2; color: #991b1b; }
+.acc-icon-wrapper.investment { background: #d1fae5; color: #065f46; }
+.acc-icon-wrapper.wallet { background: #ffedd5; color: #9a3412; }
+
+.verified-badge-mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: #10b981;
+    color: white;
+    font-size: 0.65rem;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.acc-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+    margin-bottom: 0.25rem;
+}
+
+.acc-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.acc-mask {
+    background: rgba(0,0,0,0.05);
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.acc-card-footer {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px dashed rgba(0,0,0,0.05);
+}
+
+.acc-balance-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.5rem;
+}
+
+.acc-balance-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+}
+
+.acc-balance-val {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+}
+.acc-balance-val.text-red { color: #ef4444; }
+
+.balance-tag {
+    font-size: 0.7rem;
+    color: #ef4444;
+    font-weight: 600;
+    background: #fee2e2;
+    padding: 2px 6px;
+    border-radius: 4px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+
+.acc-limit-group {
+    margin-bottom: 0.75rem;
+}
+
+.limit-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: #f3f4f6;
+    border-radius: 2px;
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+}
+
+.limit-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #818cf8);
+    border-radius: 2px;
+}
+
+.limit-text {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+}
+
+.acc-owner-row {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.owner-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: rgba(255,255,255,0.6);
+    padding: 0.25rem 0.625rem;
+    border-radius: 99px;
+    border: 1px solid rgba(0,0,0,0.05);
+}
+
+.owner-avatar-xs { font-size: 0.8rem; }
+.owner-name-xs { font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); }
+
+.add-account-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+    background: rgba(255, 255, 255, 0.4);
+    border: 2px dashed rgba(99, 102, 241, 0.2); /* Tinted border */
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--color-text-muted);
+    gap: 0.75rem;
+}
+
+.add-account-card:hover {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: #6366f1;
+    color: #6366f1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+}
+
+.add-icon-circle {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Premium Search Bar */
+.search-bar-premium {
+    position: relative;
+    max-width: 400px;
+}
+
+.search-bar-premium .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.search-bar-premium .search-input {
+    width: 100%;
+    height: 44px;
+    padding-left: 2.75rem;
+    padding-right: 1rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.search-bar-premium .search-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+
+.summary-widgets {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.mini-stat-card {
+    padding: 1rem;
+    border-radius: 1rem;
+    background: white;
+    border: 1px solid rgba(0,0,0,0.05);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.stat-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.stat-icon-bg {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+.stat-icon-bg.gray { background: #f3f4f6; }
+.stat-icon-bg.green { background: #dcfce7; }
+.stat-icon-bg.yellow { background: #fef9c3; }
+.stat-icon-bg.red { background: #fee2e2; }
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-text-main);
+    letter-spacing: -0.025em;
+}
+
+.count-badge {
+    background: #e0e7ff;
+    color: #4338ca;
+    padding: 0.125rem 0.5rem;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
 }
 
 .btn-primary-premium:hover {
@@ -4019,7 +4521,66 @@ input:checked + .slider-premium:before { transform: translateX(24px); }
 .form-field:nth-child(3) { animation-delay: 0.2s; }
 .form-field:nth-child(4) { animation-delay: 0.25s; }
 .modal-section:nth-child(2) .form-field:nth-child(1) { animation-delay: 0.3s; }
-.modal-section:nth-child(2) .toggle-field-premium { animation-delay: 0.35s; }
+.account-control-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.search-bar-premium.no-margin {
+    margin-bottom: 0 !important;
+}
+
+.verified-highlight {
+    border-top: 3px solid #10b981;
+}
+
+.untrusted-card {
+    border-top: 3px solid #f59e0b;
+}
+
+.acc-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.status-badge-mini {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+.status-badge-mini.inactive {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.btn-verify-sm {
+    padding: 0.25rem 0.75rem;
+    background: #10b981;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-verify-sm:hover {
+    background: #059669;
+}
+
+.btn-icon-subtle.danger {
+    color: #ef4444;
+}
+.btn-icon-subtle.danger:hover {
+    background: #fee2e2;
+}
 
 
 </style>
