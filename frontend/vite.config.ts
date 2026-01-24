@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
@@ -13,13 +14,23 @@ try {
   console.warn('Could not read version.json')
 }
 
-// Get latest 4 digits of master commit
-let build = '0000'
-try {
-  build = execSync('git rev-parse master').toString().trim().substring(0, 4)
-} catch (e) {
-  console.warn('Could not get git build number, using fallback.')
+// Get latest 4 digits of master commit or from environment
+let build = (process.env.VITE_APP_BUILD || '').trim() || '0000'
+
+if (build === '0000') {
+  try {
+    build = execSync('git rev-parse master').toString().trim().substring(0, 4)
+  } catch (e) {
+    console.warn('Could not get git build number from master, trying HEAD...')
+    try {
+      build = execSync('git rev-parse HEAD').toString().trim().substring(0, 4)
+    } catch (e2) {
+      console.warn('Could not get git build number, using fallback.')
+    }
+  }
 }
+
+console.log(`--- Building WealthFam v${version} (Build: ${build}) ---`)
 
 // https://vitejs.dev/config/
 export default defineConfig({

@@ -9,3 +9,6 @@ node_modules/
 dist/
 .DS_Store
 *.duckdb.wal
+# Data persistence
+data/*
+!data/.gitkeep
