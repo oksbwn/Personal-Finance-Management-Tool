@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  wealthfam:
+    build:
+      context: .
+      args:
+        - VITE_APP_BUILD=${VITE_APP_BUILD:-0000}
+    image: wealthfam:latest
+    container_name: wealthfam
+    ports:
+      - "80:80"
+    volumes:
+      - /docker/volumes/wealthfam/data:/data
+    environment:
+      - DATABASE_URL=duckdb:////data/family_finance_v3.duckdb
+      # - PORT=8080# Example: Override default port 80
+    restart: unless-stopped

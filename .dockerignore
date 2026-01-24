@@ -1,0 +1,25 @@
+# Data
+data/
+*.duckdb
+*.db
+*.wal
+
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.venv/
+
+# Docker/Git
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose*.yml
+build_and_push.sh

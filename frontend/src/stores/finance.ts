@@ -1,13 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { financeApi } from '@/api/client'
 
 export const useFinanceStore = defineStore('finance', () => {
     // State
     const categories = ref<any[]>([])
     const accounts = ref<any[]>([])
-    const transactions = ref<any[]>([]) // Should we store all global txns? Maybe just recent or cache?
-    // Storing ALL transactions might be heavy. Let's keep txns in views for now, or just store "recent"
+
 
     const recurringTransactions = ref<any[]>([])
     // const metrics = ref<any>(null)
