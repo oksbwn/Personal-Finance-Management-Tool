@@ -19,15 +19,37 @@ BUILD_NUM="$GIT_HASH-$BUILD_DATE"
 
 echo "📦 Packaging WealthFam v$VERSION (Build: $BUILD_NUM)..."
 
-# Create a temporary archive excluding unnecessary files
-# Using tar to preserve permissions and keep the transfer light
-tar --exclude='frontend/node_modules' \
-    --exclude='backend/__pycache__' \
-    --exclude='.git' \
-    --exclude='*.pyc' \
-    --exclude='data' \
-    --exclude="$ARCHIVE_NAME" \
-    -czf "$ARCHIVE_NAME" .
+# Create a temporary staging directory
+STAGING_DIR=".deploy_staging"
+rm -rf $STAGING_DIR
+mkdir -p $STAGING_DIR
+
+# Copy files to staging (using rsync if available would be better, but cp -r works)
+# We handle exclusions by just copying what we need or removing after
+cp -r backend $STAGING_DIR/
+cp -r frontend $STAGING_DIR/
+cp Dockerfile $STAGING_DIR/
+cp docker-compose.yml $STAGING_DIR/
+cp entrypoint.sh $STAGING_DIR/
+cp build_and_push.sh $STAGING_DIR/
+cp run_backend.py $STAGING_DIR/
+cp version.json $STAGING_DIR/
+# Create data dir structure
+mkdir -p $STAGING_DIR/data
+touch $STAGING_DIR/data/.gitkeep
+
+# Clean up unnecessary files in staging
+rm -rf $STAGING_DIR/frontend/node_modules
+rm -rf $STAGING_DIR/backend/__pycache__
+find $STAGING_DIR -name "*.pyc" -delete
+
+# Local conversion removed in favor of remote sanitization
+
+# Create archive from staging
+tar -czf "$ARCHIVE_NAME" -C $STAGING_DIR .
+
+# Clean up staging
+rm -rf $STAGING_DIR
 
 if [ $? -eq 0 ]; then
     echo "✅ Archive created: $ARCHIVE_NAME"
@@ -38,8 +60,9 @@ if [ $? -eq 0 ]; then
     scp $ARCHIVE_NAME $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/
     
     if [ $? -eq 0 ]; then
-        echo "📂 Extracting on Raspberry Pi..."
-        ssh $REMOTE_USER@$REMOTE_HOST "cd $REMOTE_DIR && tar -xzf $ARCHIVE_NAME && rm $ARCHIVE_NAME"
+        echo "📂 Extracting and Sanitizing on Raspberry Pi..."
+        # Extract AND fix line endings on the remote host to ensure compatibility
+        ssh $REMOTE_USER@$REMOTE_HOST "cd $REMOTE_DIR && tar -xzf $ARCHIVE_NAME && rm $ARCHIVE_NAME && find . -name '*.sh' -exec sed -i 's/\r$//' {} + && chmod +x *.sh"
         
         echo "✨ Deployment successful!"
         echo "To run the app on your Pi, SSH into it and run:"
