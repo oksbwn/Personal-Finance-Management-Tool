@@ -60,9 +60,14 @@ if [ $? -eq 0 ]; then
     scp $ARCHIVE_NAME $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/
     
     if [ $? -eq 0 ]; then
-        echo "📂 Extracting and Sanitizing on Raspberry Pi..."
-        # Extract AND fix line endings on the remote host to ensure compatibility
-        ssh $REMOTE_USER@$REMOTE_HOST "cd $REMOTE_DIR && tar -xzf $ARCHIVE_NAME && rm $ARCHIVE_NAME && find . -name '*.sh' -exec sed -i 's/\r$//' {} + && chmod +x *.sh"
+        # Extract AND fix line endings.
+        # CRITICAL: We completely recreate entrypoint.sh to ensure no BOM/CRLF issues persist.
+        ssh $REMOTE_USER@$REMOTE_HOST "cd $REMOTE_DIR && \
+        tar -xzf $ARCHIVE_NAME && \
+        rm $ARCHIVE_NAME && \
+        find . -name '*.sh' -exec sed -i 's/\r$//' {} + && \
+        printf '#!/bin/bash\nnginx\npython run_backend.py\n' > entrypoint.sh && \
+        chmod +x *.sh"
         
         echo "✨ Deployment successful!"
         echo "To run the app on your Pi, SSH into it and run:"

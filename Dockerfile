@@ -1,5 +1,5 @@
 # Stage 1: Build Frontend
-FROM node:20 as frontend-build
+FROM node:20 AS frontend-build
 WORKDIR /app
 COPY version.json ./
 WORKDIR /app/frontend
@@ -24,8 +24,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 3. Static Infrastructure Configs (Change infrequently)
 COPY frontend/nginx.conf /etc/nginx/sites-available/default
-COPY entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+# Create entrypoint.sh inline to avoid CRLF/BOM issues
+RUN printf "#!/bin/bash\nnginx\npython run_backend.py\n" > entrypoint.sh && chmod +x entrypoint.sh
 
 # 4. Application Code (Changes frequently)
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
