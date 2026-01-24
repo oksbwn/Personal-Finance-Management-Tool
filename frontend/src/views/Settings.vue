@@ -421,22 +421,13 @@
                         </div>
 
                         <!-- Add New Email Card -->
-                        <div v-if="emailConfigs.length > 0" class="glass-card add-account-card"
-                            @click="showEmailModal = true">
+                        <div v-if="!searchQuery" class="glass-card add-account-card" @click="showEmailModal = true">
                             <div class="add-icon-circle">+</div>
                             <span>Add Email Account</span>
                         </div>
 
-                        <div v-if="emailConfigs.length === 0" class="empty-email-state">
-                            <div class="empty-icon">
-                                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="1.5">
-                                    <path
-                                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
-                            </div>
-                            <h3>No Email Accounts Linked</h3>
-                            <p>Connect your bank email to automatically sync transactions</p>
+                        <div v-if="emailConfigs.length === 0 && searchQuery" class="empty-placeholder">
+                            <p>No emails match "{{ searchQuery }}"</p>
                         </div>
                     </div>
                 </div>
@@ -854,7 +845,7 @@
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                                         <span>{{ getDeviceUser(device.user_id)?.avatar || '👤' }}</span>
                                         <span class="value">{{ getDeviceUser(device.user_id)?.full_name || 'Unknown'
-                                            }}</span>
+                                        }}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1376,7 +1367,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
+                        }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
