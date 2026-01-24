@@ -11,8 +11,8 @@ MINOR=$(grep -oP '"minor": \K\d+' version.json)
 PATCH=$(grep -oP '"patch": \K\d+' version.json)
 VERSION="$MAJOR.$MINOR.$PATCH"
 
-# Generate build string: master hash-date (e.g., c196-20260124)
-GIT_HASH=$(git rev-parse master 2>/dev/null | cut -c1-4 || echo "0000")
+# Generate build string: master hash-date (e.g., c196-20260125)
+GIT_HASH=$(git rev-parse --short=4 HEAD 2>/dev/null || echo "0000")
 BUILD_DATE=$(date +%Y%m%d)
 BUILD_NUM="$GIT_HASH-$BUILD_DATE"
 TAG="v$VERSION-b$BUILD_NUM"
