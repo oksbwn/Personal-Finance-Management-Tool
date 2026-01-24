@@ -21,8 +21,8 @@ if [ $? -eq 0 ]; then
     
     read -p "Do you want to push to Docker Hub? (y/N): " PUSH
     if [[ "$PUSH" =~ ^[Yy]$ ]]; then
-        read -p "Enter Docker Hub username [WGLabz]: " USERNAME
-        USERNAME=${USERNAME:-WGLabz}
+        read -p "Enter Docker Hub username [wglabz]: " USERNAME
+        USERNAME=${USERNAME:-wglabz}
         docker tag $IMAGE_NAME:$TAG $USERNAME/$IMAGE_NAME:$TAG
         docker tag $IMAGE_NAME:latest $USERNAME/$IMAGE_NAME:latest
         docker push $USERNAME/$IMAGE_NAME:$TAG
