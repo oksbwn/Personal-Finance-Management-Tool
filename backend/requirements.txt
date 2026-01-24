@@ -9,7 +9,7 @@ python-multipart
 pandas
 yfinance
 pdfplumber
-casparser
+casparser>=0.7.2
 python-jose[cryptography]
 bcrypt
 httpx
@@ -17,3 +17,5 @@ requests
 google-genai
 apscheduler
 python-dateutil
+xlrd>=2.0.1
+openpyxl

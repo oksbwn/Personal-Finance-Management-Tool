@@ -198,6 +198,7 @@ def preview_cas_pdf(
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             shutil.copyfileobj(file.file, tmp)
             temp_path = tmp.name
+        # File is now closed, safe to read on Windows
         
         # 1. Parse raw transactions
         raw_transactions = CASParser.parse_pdf(temp_path, password)
@@ -221,7 +222,9 @@ def preview_cas_pdf(
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+            try:
+                os.remove(temp_path)
+            except: pass
 
 @router.post("/preview-cas-email")
 def preview_cas_email(
@@ -320,7 +323,8 @@ def import_cas_pdf(
     db: Session = Depends(get_db)
 ):
     """Legacy compatibility: Import PDF in one go."""
-    preview = preview_cas_pdf(file, password, db)
+    # Corrected arguments: must pass current_user and db explicitly
+    preview = preview_cas_pdf(file, password, current_user, db)
     mapped_txns = preview["transactions"]
     for txn in mapped_txns:
         txn['import_source'] = 'PDF'

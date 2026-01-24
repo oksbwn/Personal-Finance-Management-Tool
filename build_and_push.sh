@@ -21,9 +21,13 @@ LATEST_TAG="$USERNAME/$IMAGE_NAME:latest"
 
 echo "🚀 Starting Docker build for $FULL_TAG..."
 
-# Check if buildx is available and use it for multi-arch build
+# Check if buildx is available
 if docker buildx version > /dev/null 2>&1; then
-    echo "✨ Docker Buildx detected! Attempting multi-arch build (amd64, arm64)..."
+    echo ""
+    read -p "❓ Do you want a Multi-Arch build (amd64 + arm64)? (y/N) [Default: No - Native Only]: " multi_arch_confirm
+    
+    if [[ $multi_arch_confirm == [yY] || $multi_arch_confirm == [yY][eE][sS] ]]; then
+        echo "✨ Docker Buildx detected! Attempting multi-arch build (amd64, arm64)..."
     
     # Ensure a builder instance exists
     if ! docker buildx inspect wealthfam-builder > /dev/null 2>&1; then
@@ -51,6 +55,10 @@ if docker buildx version > /dev/null 2>&1; then
         echo "❌ Multi-arch build failed. Falling back to standard local build..."
         # Fallback to standard build logic below
         docker buildx stop wealthfam-builder
+        STANDARD_BUILD=true
+    fi
+    else
+        echo "⚠️  Skipping Multi-Arch build. Proceeding with Native build..."
         STANDARD_BUILD=true
     fi
 else

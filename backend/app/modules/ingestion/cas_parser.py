@@ -40,7 +40,20 @@ class CASParser:
             #     }
             #   ]
             # }
-            data = casparser.read_cas_pdf(file_path, password, output="dict")
+            try:
+                print(f"Attempting standard parse for {file_path}...")
+                print(f"CASParser Version: {casparser.__version__}")
+                data = casparser.read_cas_pdf(file_path, password, output="dict")
+                print("Standard parse successful")
+            except Exception as e:
+                # "Layout Error! Scheme found before folio entry" is common with CAMS/KFintech quirks
+                print(f"Standard parse failed: {e}. Retrying with force_pdfminer=True")
+                try:
+                    data = casparser.read_cas_pdf(file_path, password, output="dict", force_pdfminer=True)
+                    print("Force pdfminer parse successful")
+                except Exception as e2:
+                    print(f"Force pdfminer failed: {e2}")
+                    raise ValueError(f"CAS Parsing failed (Standard: {e}, PDFMiner: {e2})")
             
             # Force generic object handling because simple "dict" output seems unreliable across versions/envs
             if not isinstance(data, dict):
