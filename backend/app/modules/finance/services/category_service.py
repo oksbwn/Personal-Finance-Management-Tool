@@ -137,6 +137,16 @@ class CategoryService:
         return True
 
     @staticmethod
+    def ignore_suggestion(db: Session, pattern: str, tenant_id: str):
+        exists = db.query(models.IgnoredSuggestion).filter(
+            models.IgnoredSuggestion.tenant_id == tenant_id,
+            models.IgnoredSuggestion.pattern == pattern
+        ).first()
+        if not exists:
+            db.add(models.IgnoredSuggestion(tenant_id=tenant_id, pattern=pattern))
+            db.commit()
+            
+    @staticmethod
     def get_rule_suggestions(db: Session, tenant_id: str) -> List[dict]:
         """
         Analyze transaction history to suggest new rules.
@@ -161,6 +171,7 @@ class CategoryService:
         
         suggestions = []
         existing_rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).all()
+        ignored = db.query(models.IgnoredSuggestion).filter(models.IgnoredSuggestion.tenant_id == tenant_id).all()
         
         # Flatten existing keywords for basic dedup
         existing_keywords = set()
@@ -169,6 +180,9 @@ class CategoryService:
                 kw = json.loads(r.keywords)
                 for k in kw: existing_keywords.add(k.lower())
             except: pass
+            
+        for i in ignored:
+            existing_keywords.add(i.pattern.lower())
 
         for row in results:
             desc = row.description

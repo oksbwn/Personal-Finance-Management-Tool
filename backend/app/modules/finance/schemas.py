@@ -138,6 +138,9 @@ class RuleSuggestion(BaseModel):
     keywords: List[str]
     confidence: int
 
+class IgnoredSuggestionCreate(BaseModel):
+    pattern: str
+
 class CategoryBase(BaseModel):
     name: str
     icon: Optional[str] = "🏷️"

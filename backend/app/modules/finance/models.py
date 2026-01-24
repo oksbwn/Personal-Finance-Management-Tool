@@ -96,6 +96,14 @@ class CategoryRule(Base):
     to_account_id = Column(String, nullable=True) # Destination Account ID if it's a transfer rule
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class IgnoredSuggestion(Base):
+    __tablename__ = "ignored_suggestions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    pattern = Column(String, nullable=False) # The description/keyword to ignore
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Category(Base):
     __tablename__ = "categories"
 

@@ -10,6 +10,15 @@ from backend.app.modules.finance.services.category_service import CategoryServic
 router = APIRouter()
 
 # --- Categories ---
+@router.post("/rules/suggestions/ignore")
+def ignore_suggestion(
+    data: schemas.IgnoredSuggestionCreate,
+    db: Session = Depends(get_db),
+    current_user: auth_models.User = Depends(get_current_user)
+):
+    CategoryService.ignore_suggestion(db, data.pattern, str(current_user.tenant_id))
+    return {"status": "ignored", "pattern": data.pattern}
+
 @router.get("/categories", response_model=List[schemas.CategoryRead])
 def get_categories(
     current_user: auth_models.User = Depends(get_current_user),
