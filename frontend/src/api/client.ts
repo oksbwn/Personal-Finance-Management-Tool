@@ -78,6 +78,7 @@ export const financeApi = {
     getRules: () => apiClient.get('/finance/rules'),
     getRuleSuggestions: () => apiClient.get('/finance/rules/suggestions'),
     createRule: (data: any) => apiClient.post('/finance/rules', data),
+    ignoreSuggestion: (data: { pattern: string }) => apiClient.post('/finance/rules/suggestions/ignore', data),
     updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
     deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
 
