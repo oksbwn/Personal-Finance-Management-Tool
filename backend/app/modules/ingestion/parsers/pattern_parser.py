@@ -11,8 +11,9 @@ class PatternParser:
     @staticmethod
     def parse(db: Session, tenant_id: str, content: str, source: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         patterns = db.query(ingestion_models.ParsingPattern).filter(
-            ingestion_models.ParsingPattern.tenant_id == tenant_id
-        ).all()
+            ingestion_models.ParsingPattern.tenant_id == tenant_id,
+            ingestion_models.ParsingPattern.pattern_type == source
+        ).order_by(ingestion_models.ParsingPattern.created_at.desc()).all()
         
         clean_content = " ".join(content.split())
         

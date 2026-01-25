@@ -97,11 +97,15 @@ class PatternGenerator:
         
         def process_anchor(text: str) -> str:
             if not text: return ""
-            # Escape the anchor text
+            # Escape the anchor text for regex safety
             escaped = re.escape(text)
-            # Make whitespace flexible
-            escaped = re.sub(r'\\ ', r'\\s*', escaped)
-            # Make digit sequences (dates, balances, OTPs) flexible
+            
+            # Handle both literal spaces and escaped spaces (\ ) from various python versions
+            # Ensure literal spaces are replaced by flexible whitespace match \s*
+            escaped = escaped.replace(r'\ ', r'\s*').replace(' ', r'\s*')
+            
+            # Make digit sequences (dates, IDs, OTPs) flexible
+            # This allows the anchor to match different codes/dates in the same message structure
             escaped = re.sub(r'\d{2,}', r'\\d+', escaped)
             return escaped
 

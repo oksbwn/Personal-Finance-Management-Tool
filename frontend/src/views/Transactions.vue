@@ -295,16 +295,39 @@ async function confirmDiscard() {
 
 function startLabeling(msg: any) {
     selectedMessage.value = msg
-    // Pre-fill what we can (date extracted from created_at)
+    const content = msg.raw_content || ''
+
+    // 1. Smart Extraction Heuristics
+    // Amount: Look for numbers after currency keywords
+    const amtMatch = content.match(/(?:Rs\.?|INR|₹|Amt)\s*([\d,]+(?:\.\d{1,2})?)/i)
+    let suggestedAmt = 0
+    if (amtMatch) {
+        suggestedAmt = parseFloat(amtMatch[1].replace(/,/g, ''))
+    }
+
+    // Account Mask: Look for 3-4 digits after account keywords
+    const accMatch = content.match(/(?:A\/c|Acct|ending|XX|card)\s*(\d{3,4})/i)
+    const suggestedMask = accMatch ? accMatch[1] : ''
+
+    // Ref ID: Look for long alphanumeric strings
+    const refMatch = content.match(/(?:Ref|UTR|TXN|ID)\s*:?\s*([A-Z0-9]{8,})/i)
+    const suggestedRef = refMatch ? refMatch[1] : ''
+
+    // Type: Detect Credit keywords
+    const isCredit = /credit|received|deposit|incoming|refund/i.test(content)
+    const suggestedType = isCredit ? 'CREDIT' : 'DEBIT'
+
+    // 2. Pre-fill the form
     const dateStr = msg.created_at ? new Date(msg.created_at).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16)
+
     labelForm.value = {
-        amount: 0,
+        amount: suggestedAmt,
         date: dateStr,
-        account_mask: '',
-        recipient: '',
-        ref_id: '',
+        account_mask: suggestedMask,
+        recipient: '', // Still hard to guess reliably
+        ref_id: suggestedRef,
         category: 'Uncategorized',
-        type: 'DEBIT',
+        type: suggestedType,
         generate_pattern: true
     }
     showLabelForm.value = true
@@ -616,7 +639,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                            }}</span>
+                        }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -737,7 +760,7 @@ onMounted(() => {
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                }}</span>
+                                            }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
@@ -998,7 +1021,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                        }}</span>
+                                            }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>

@@ -19,7 +19,8 @@ class SmsParserRegistry:
         # 1. Try static parsers
         for parser in cls._parsers:
             if parser.can_handle(sender, message):
-                return parser.parse(message)
+                res = parser.parse(message)
+                if res: return res
         
         # 2. Try User-Defined Patterns
         from backend.app.modules.ingestion.parsers.pattern_parser import PatternParser
