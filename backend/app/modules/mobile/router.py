@@ -214,6 +214,37 @@ def delete_device(
     db.commit()
     return {"status": "deleted"}
 
+@router.patch("/devices/{device_id}", response_model=schemas.DeviceResponse)
+def update_device(
+    device_id: str,
+    payload: schemas.DeviceUpdate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update device metadata (Name, User Assignment, etc).
+    """
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    if payload.device_name is not None:
+        device.device_name = payload.device_name
+    if payload.is_enabled is not None:
+        device.is_enabled = payload.is_enabled
+    if payload.is_ignored is not None:
+        device.is_ignored = payload.is_ignored
+    if payload.user_id is not None:
+        device.user_id = payload.user_id
+        
+    db.commit()
+    db.refresh(device)
+    return device
+
 @router.patch("/devices/{device_id}/enable")
 def toggle_device_enabled(
     device_id: str,

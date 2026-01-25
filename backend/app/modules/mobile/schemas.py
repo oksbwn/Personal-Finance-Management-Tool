@@ -43,3 +43,9 @@ class ToggleEnabledRequest(BaseModel):
 
 class AssignUserRequest(BaseModel):
     user_id: Optional[str] = None
+
+class DeviceUpdate(BaseModel):
+    device_name: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    is_ignored: Optional[bool] = None
+    user_id: Optional[str] = None

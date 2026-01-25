@@ -833,29 +833,32 @@
                                     </div>
                                     <div class="dev-info-main">
                                         <h3 class="dev-name">{{ device.device_name }}</h3>
-                                        <span class="dev-id-mono">{{ device.device_id.substring(0, 12) }}...</span>
-                                    </div>
-                                    <div class="status-indicator pending">
-                                        <span class="status-dot"></span>
-                                        Pending
                                     </div>
                                 </div>
                                 <div class="dev-meta">
                                     <div class="meta-row">
-                                        <span class="meta-label">First Seen</span>
-                                        <span class="meta-val">{{ formatDate(device.created_at).day }}</span>
-                                    </div>
-                                    <div class="meta-row">
-                                        <span class="meta-label">User</span>
-                                        <span class="meta-val">
-                                            {{ (getDeviceUser(device.user_id)?.full_name ||
-                                                getDeviceUser(device.user_id)?.email || 'Unknown').split('@')[0] }}
+                                        <div class="flex items-center gap-1">
+                                            <span class="meta-val text-xs">
+                                                {{ (getDeviceUser(device.user_id)?.full_name ||
+                                                    getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0] }}
+                                            </span>
+                                            <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
+                                        </div>
+                                        <span class="meta-val text-xs text-muted" title="First Seen">
+                                            🕒 {{ formatDate(device.created_at).day }}
                                         </span>
                                     </div>
                                 </div>
+                                <div class="dev-id-footer">
+                                    <div class="dev-id-row">
+                                        <span class="dev-id-mono">{{ device.device_id }}</span>
+                                        <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                            title="Copy Full ID">📋</button>
+                                    </div>
+                                </div>
                                 <div class="dev-actions">
-                                    <button @click="toggleDeviceApproval(device)" class="btn-dev primary">Approve
-                                        Access</button>
+                                    <button @click="toggleDeviceApproval(device)"
+                                        class="btn-dev primary">Approve</button>
                                     <button @click="toggleDeviceIgnored(device, true)"
                                         class="btn-dev secondary">Ignore</button>
                                 </div>
@@ -873,7 +876,11 @@
 
                     <div class="devices-grid-premium mb-12">
                         <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
-                            class="device-card-premium">
+                            class="device-card-premium" :class="{
+                                'ignored': device.is_ignored,
+                                'online-accent': isOnline(device.last_seen_at),
+                                'offline-accent': !isOnline(device.last_seen_at)
+                            }">
                             <div class="dev-header">
                                 <div class="dev-icon-wrapper"
                                     :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
@@ -882,50 +889,40 @@
                                 </div>
                                 <div class="dev-info-main">
                                     <h3 class="dev-name">{{ device.device_name }}</h3>
-                                    <span class="dev-id-mono">{{ device.device_id.substring(0, 8) }}...</span>
-                                </div>
-                                <div class="status-indicator" :class="isOnline(device.last_seen_at) ? 'online' : ''">
-                                    <span class="status-dot" :class="{ 'pulse': isOnline(device.last_seen_at) }"></span>
-                                    {{ isOnline(device.last_seen_at) ? 'Online' : 'Offline' }}
                                 </div>
                             </div>
 
                             <div class="dev-meta">
                                 <div class="meta-row">
-                                    <span class="meta-label">User</span>
                                     <div class="flex items-center gap-2">
-                                        <span class="meta-val p-0">
+                                        <span class="meta-val p-0 text-xs flex items-center gap-1">
                                             <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
                                                 :src="getDeviceUser(device.user_id)?.avatar"
-                                                class="w-5 h-5 rounded-full" />
-                                            <span v-else>{{ getDeviceUser(device.user_id)?.avatar || '👤' }}</span>
+                                                class="w-4 h-4 rounded-full" />
                                             {{ getDeviceUser(device.user_id)?.full_name ||
                                                 getDeviceUser(device.user_id)?.email || 'Unassigned' }}
                                         </span>
-                                        <button @click="openAssignModal(device)"
-                                            class="text-xs text-blue-600 hover:text-blue-800 underline">Edit</button>
+                                        <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
                                     </div>
+                                    <span class="meta-val text-xs text-muted" title="Last Synchronization">
+                                        Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
+                                    </span>
                                 </div>
-                                <div class="meta-row">
-                                    <span class="meta-label">Last Synchronization</span>
-                                    <span class="meta-val">{{ formatDate(device.last_seen_at).meta }} <small
-                                            class="text-xs text-muted ml-1">({{ formatDate(device.last_seen_at).day
-                                            }})</small></span>
+                            </div>
+                            <div class="dev-id-footer">
+                                <div class="dev-id-row">
+                                    <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                        title="Copy Full ID">📋</button>
                                 </div>
                             </div>
 
                             <div class="dev-actions">
                                 <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
-                                    {{ device.is_enabled ? 'Pause Ingestion' : 'Resume Ingestion' }}
+                                    {{ device.is_enabled ? 'Pause' : 'Resume' }}
                                 </button>
                                 <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
-                                    style="flex: 0 0 auto;">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path
-                                            d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                                    </svg>
-                                </button>
+                                    style="flex: 0 0 2.25rem;">🗑️</button>
                             </div>
                         </div>
 
@@ -1465,7 +1462,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
+                        }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1491,14 +1488,16 @@
         <div v-if="showDeviceAssignModal" class="modal-overlay-global">
             <div class="modal-global glass text-center">
                 <div class="modal-header">
-                    <h2 class="modal-title">Assign Device Owner</h2>
+                    <h2 class="modal-title">Edit Device Settings</h2>
                     <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
                 </div>
                 <div class="p-4" style="text-align: left;">
-                    <p class="mb-4 text-muted">Who does <strong>{{ deviceToAssign?.device_name }}</strong> belong to?
-                    </p>
+                    <div class="form-group mb-4">
+                        <label class="form-label">Display Name</label>
+                        <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
+                    </div>
                     <div class="form-group">
-                        <label class="form-label">Select Family Member</label>
+                        <label class="form-label">Assign Family Member</label>
                         <CustomSelect v-model="selectedAssignUserId as any" :options="[
                             { label: '👤 Unassigned', value: null as any },
                             ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
@@ -1507,7 +1506,25 @@
                 </div>
                 <div class="modal-footer">
                     <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
-                    <button @click="confirmAssignUser" class="btn-primary-glow">Save Assignment</button>
+                    <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Device Delete Confirmation Modal -->
+        <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
+            <div class="modal-global glass text-center" style="max-width: 400px;">
+                <div class="p-6">
+                    <div class="text-4xl mb-4">🗑️</div>
+                    <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
+                    <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
+                        deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
+
+                    <div class="flex gap-3">
+                        <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
+                            Device</button>
+                        <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete Permanently</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1933,6 +1950,9 @@ const getRoleColorClass = (role: string) => {
 const showDeviceAssignModal = ref(false)
 const deviceToAssign = ref<any>(null)
 const selectedAssignUserId = ref<string | null>(null)
+const editDeviceName = ref('')
+const showDeviceDeleteConfirm = ref(false)
+const deviceToDelete = ref<any>(null)
 
 const getDeviceUser = (userId: string) => {
     if (!userId) return null
@@ -1961,22 +1981,26 @@ const toggleDeviceEnabled = async (device: any) => {
 function openAssignModal(device: any) {
     deviceToAssign.value = device
     selectedAssignUserId.value = device.user_id || null
+    editDeviceName.value = device.device_name || ''
     showDeviceAssignModal.value = true
 }
 
 async function confirmAssignUser() {
     if (!deviceToAssign.value) return
     try {
-        await mobileApi.assignUser(deviceToAssign.value.id, selectedAssignUserId.value)
-        notify.success("Device assigned successfully")
+        await mobileApi.updateDevice(deviceToAssign.value.id, {
+            device_name: editDeviceName.value,
+            user_id: selectedAssignUserId.value
+        })
+        notify.success("Device settings updated")
 
         // Refresh data to ensure UI is in sync
         await fetchData()
 
         showDeviceAssignModal.value = false
     } catch (e: any) {
-        console.error("Assignment failed", e)
-        notify.error("Failed to assign user")
+        console.error("Update failed", e)
+        notify.error("Failed to update device")
     }
 }
 
@@ -2171,15 +2195,22 @@ function getAccountTypeLabel(type: string) {
 
 
 
-const deleteDeviceRequest = async (device: any) => {
-    // Basic confirm since modal is overkill for now
-    if (!confirm('Permanently delete this device? This cannot be undone.')) return
+const deleteDeviceRequest = (device: any) => {
+    deviceToDelete.value = device
+    showDeviceDeleteConfirm.value = true
+}
+
+const confirmDeleteDevice = async () => {
+    if (!deviceToDelete.value) return
     try {
-        await mobileApi.deleteDevice(device.id)
-        devices.value = devices.value.filter(d => d.id !== device.id)
-        notify.success("Device deleted")
+        await mobileApi.deleteDevice(deviceToDelete.value.id)
+        devices.value = devices.value.filter(d => d.id !== deviceToDelete.value.id)
+        notify.success("Device permanently removed")
+        showDeviceDeleteConfirm.value = false
     } catch (e) {
         notify.error("Failed to delete device")
+    } finally {
+        deviceToDelete.value = null
     }
 }
 
@@ -2433,6 +2464,10 @@ async function handleMemberSubmit() {
 }
 
 // --- Devices Logic ---
+const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    notify.success("Device ID copied!")
+}
 
 </script>
 <style scoped>
@@ -5652,61 +5687,52 @@ input:checked+.slider-premium:before {
 
 .devices-grid-premium {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem;
 }
 
 .device-card-premium {
     background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 1.25rem;
-    padding: 1.25rem;
+    border: 1px solid #f1f5f9;
+    border-radius: 0.5rem;
+    padding: 0.625rem;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
+    gap: 0.375rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .device-card-premium:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.08);
     border-color: #4f46e5;
+    box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.08);
 }
 
 .device-card-premium.unapproved {
-    border-left: 4px solid #f59e0b;
     background: #fffbeb;
+    border-left: 3px solid #f59e0b;
 }
 
 .device-card-premium.ignored {
-    opacity: 0.7;
-    filter: grayscale(0.8);
-    background: #f9fafb;
-}
-
-.device-card-premium.ignored:hover {
-    filter: grayscale(0);
-    opacity: 1;
+    opacity: 0.6;
+    background: #f8fafc;
 }
 
 .dev-header {
     display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
+    align-items: center;
+    gap: 0.75rem;
 }
 
 .dev-icon-wrapper {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 1rem;
-    background: #f3f4f6;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
+    font-size: 1rem;
     flex-shrink: 0;
 }
 
@@ -5726,10 +5752,10 @@ input:checked+.slider-premium:before {
 }
 
 .dev-name {
-    font-size: 1.125rem;
+    font-size: 0.9375rem;
     font-weight: 700;
-    color: #111827;
-    margin: 0 0 0.25rem 0;
+    color: #0f172a;
+    margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5737,11 +5763,140 @@ input:checked+.slider-premium:before {
 
 .dev-id-mono {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    color: #6b7280;
-    background: rgba(0, 0, 0, 0.05);
+    font-size: 0.625rem;
+    color: #64748b;
+    background: white;
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    word-break: break-all;
+    flex: 1;
+}
+
+.dev-id-footer {
+    padding: 0.375rem 0.5rem;
+    background: #f8fafc;
+    border-radius: 0.375rem;
+    border: 1px solid #f1f5f9;
+}
+
+.dev-id-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.device-card-premium.online-accent {
+    border-top: 3px solid #10b981;
+}
+
+.device-card-premium.offline-accent {
+    border-top: 3px solid #ef4444;
+}
+
+.device-card-premium.unapproved {
+    background: #fffbeb;
+    border-top: 3px solid #f59e0b;
+}
+
+.meta-val {
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.meta-label {
+    font-size: 0.65rem;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+}
+
+.meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dev-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+}
+
+.btn-dev {
+    flex: 1;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-dev.primary {
+    background: #4f46e5;
+    color: white;
+}
+
+.btn-dev.primary:hover {
+    background: #4338ca;
+}
+
+.btn-dev.secondary {
+    background: white;
+    color: #475569;
+    border-color: #e2e8f0;
+}
+
+.btn-dev.secondary:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+
+.btn-dev.danger {
+    background: #fff1f2;
+    color: #e11d48;
+    border-color: #fecdd3;
+}
+
+.btn-dev.danger:hover {
+    background: #ffe4e6;
+}
+
+.copy-small-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    padding: 2px;
+}
+
+.copy-small-btn:hover {
+    opacity: 1;
+    color: #4f46e5;
+}
+
+.btn-icon-tiny {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #4f46e5;
+    padding: 2px;
+    line-height: 1;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.btn-icon-tiny:hover {
+    opacity: 1;
 }
 
 .status-indicator {
@@ -5754,11 +5909,6 @@ input:checked+.slider-premium:before {
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
     background: #f3f4f6;
-}
-
-.status-indicator.online {
-    background: #ecfdf5;
-    color: #059669;
 }
 
 .status-indicator.pending {
@@ -5793,90 +5943,5 @@ input:checked+.slider-premium:before {
         transform: scale(0.95);
         box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
     }
-}
-
-.dev-meta {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-    margin-bottom: 1.25rem;
-    padding: 0.75rem;
-    background: rgba(255, 255, 255, 0.6);
-    border-radius: 0.75rem;
-    border: 1px solid rgba(0, 0, 0, 0.03);
-}
-
-.meta-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.meta-label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    color: #9ca3af;
-    font-weight: 600;
-}
-
-.meta-val {
-    font-size: 0.875rem;
-    color: #374151;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.dev-actions {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: auto;
-}
-
-.btn-dev {
-    flex: 1;
-    padding: 0.625rem;
-    border-radius: 0.75rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-}
-
-.btn-dev.primary {
-    background: #4f46e5;
-    color: white;
-    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
-}
-
-.btn-dev.primary:hover {
-    background: #4338ca;
-    transform: translateY(-1px);
-}
-
-.btn-dev.secondary {
-    background: white;
-    border: 1px solid #e5e7eb;
-    color: #374151;
-}
-
-.btn-dev.secondary:hover {
-    border-color: #d1d5db;
-    background: #f9fafb;
-}
-
-.btn-dev.danger {
-    background: #fee2e2;
-    color: #ef4444;
-}
-
-.btn-dev.danger:hover {
-    background: #fecaca;
 }
 </style>
