@@ -12,14 +12,23 @@ class SmsParserRegistry:
         cls._parsers.append(parser)
 
     @classmethod
-    def parse(cls, sender: str, message: str) -> Optional[ParsedTransaction]:
+    def parse(cls, db: Session, tenant_id: str, sender: str, message: str) -> Optional[ParsedTransaction]:
         """
-        Iterate through registered parsers and return the first successful result.
+        Iterate through registered parsers, then check user-defined patterns, then AI.
         """
+        # 1. Try static parsers
         for parser in cls._parsers:
             if parser.can_handle(sender, message):
                 return parser.parse(message)
-        return None
+        
+        # 2. Try User-Defined Patterns
+        from backend.app.modules.ingestion.parsers.pattern_parser import PatternParser
+        res = PatternParser.parse(db, tenant_id, message, "SMS")
+        if res: return res
+
+        # 3. Try AI Parsing (Gemini/LLM)
+        from backend.app.modules.ingestion.ai_service import AIService
+        return AIService.parse_with_ai(db, tenant_id, message, "parsing")
 
 class EmailParserRegistry:
     _parsers: List[BaseEmailParser] = []

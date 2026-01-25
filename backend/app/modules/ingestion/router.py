@@ -10,6 +10,7 @@ from backend.app.modules.auth import models as auth_models
 from backend.app.modules.auth.dependencies import get_current_user
 
 from backend.app.modules.finance import schemas as finance_schemas
+from backend.app.modules.finance import models as finance_models
 from backend.app.modules.finance.services.transaction_service import TransactionService
 
 from backend.app.modules.ingestion.services import IngestionService
@@ -113,11 +114,25 @@ def ingest_sms(
 
         if not device:
              # Unknown device, reject or log?
-             # For improved UX, we might allow it but mark as unapproved? 
-             # Plan says: "Rejects data if the sending device_id is not approved"
+             IngestionService.log_event(
+                 db, 
+                 str(current_user.tenant_id), 
+                 "sms_received", 
+                 "error", 
+                 f"Device not registered: {payload.device_id}",
+                 device_id=payload.device_id
+             )
              raise HTTPException(status_code=403, detail="Device not registered or found")
 
         if not device.is_approved:
+            IngestionService.log_event(
+                db, 
+                str(current_user.tenant_id), 
+                "sms_received", 
+                "warning", 
+                "Device not approved by owner",
+                device_id=payload.device_id
+            )
             raise HTTPException(status_code=403, detail="Device not approved by owner")
             
         if not device.is_enabled:
@@ -128,10 +143,30 @@ def ingest_sms(
         db.commit()
 
     # 2. Parsing
-    parsed = SmsParserRegistry.parse(payload.sender, payload.message)
+    parsed = SmsParserRegistry.parse(db, str(current_user.tenant_id), payload.sender, payload.message)
     
     if not parsed:
-        raise HTTPException(status_code=422, detail="Could not parse SMS content")
+        # Promotion to UnparsedMessage for interactive training
+        IngestionService.capture_unparsed(
+            db, 
+            str(current_user.tenant_id), 
+            "SMS", 
+            payload.message, 
+            sender=payload.sender
+        )
+        IngestionService.log_event(
+            db, 
+            str(current_user.tenant_id), 
+            "sms_ingestion", 
+            "warning", 
+            "SMS message captured for learning/training (Failed to parse).", 
+            data={"sender": payload.sender, "message": payload.message},
+            device_id=payload.device_id
+        )
+        return {
+            "status": "unparsed",
+            "message": "SMS message captured for learning/training."
+        }
 
     # 3. Add Location Data to Parsed Object (Monkey patch or update class)
     # We'll pass it to process_transaction separately or attach it
@@ -142,6 +177,16 @@ def ingest_sms(
     }
         
     result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed, extra_data=extra_data)
+    
+    IngestionService.log_event(
+        db, 
+        str(current_user.tenant_id), 
+        "sms_ingestion", 
+        "success", 
+        f"Processed SMS from {payload.sender}: {result.get('status')}", 
+        data={"sender": payload.sender, "result": result.get('status')},
+        device_id=payload.device_id
+    )
     
     return {
         "status": "processed",
@@ -161,6 +206,14 @@ def ingest_email(
     parsed = EmailParserRegistry.parse(payload.subject, payload.body)
     
     if not parsed:
+        IngestionService.log_event(
+            db, 
+            str(current_user.tenant_id), 
+            "email_ingestion", 
+            "error", 
+            "Could not parse Email content", 
+            data={"subject": payload.subject}
+        )
         raise HTTPException(status_code=422, detail="Could not parse Email content")
         
     result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
@@ -435,12 +488,20 @@ class PendingTransactionRead(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/triage", response_model=List[PendingTransactionRead])
+@router.get("/triage")
 def list_triage(
+    limit: int = 50,
+    skip: int = 0,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return TransactionService.get_pending_transactions(db, str(current_user.tenant_id))
+    items, total = TransactionService.get_pending_transactions(db, str(current_user.tenant_id), skip=skip, limit=limit)
+    return {
+        "total": total,
+        "items": items,
+        "limit": limit,
+        "skip": skip
+    }
 
 class TriageApproveRequest(BaseModel):
     category: Optional[str] = None
@@ -479,6 +540,20 @@ def reject_triage(
         raise HTTPException(status_code=404, detail="Pending transaction not found")
     return {"status": "rejected"}
 
+class BulkTriageRequest(BaseModel):
+    pending_ids: List[str]
+
+@router.post("/triage/bulk-reject")
+def bulk_reject_triage(
+    payload: BulkTriageRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = TransactionService.bulk_reject_pending_transactions(
+        db, payload.pending_ids, str(current_user.tenant_id)
+    )
+    return {"status": "deleted", "count": count}
+
 # --- Interactive Training ---
 
 class UnparsedMessageRead(BaseModel):
@@ -492,21 +567,34 @@ class UnparsedMessageRead(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/training", response_model=List[UnparsedMessageRead])
+@router.get("/training")
 def list_training_messages(
+    limit: int = 50,
+    skip: int = 0,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return db.query(ingestion_models.UnparsedMessage).filter(
+    query = db.query(ingestion_models.UnparsedMessage).filter(
         ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
-    ).order_by(ingestion_models.UnparsedMessage.created_at.desc()).all()
+    )
+    total = query.count()
+    items = query.order_by(ingestion_models.UnparsedMessage.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return {
+        "total": total,
+        "items": items,
+        "limit": limit,
+        "skip": skip
+    }
 
 class LabelPayload(BaseModel):
     amount: float
     date: datetime
     account_mask: str
     recipient: Optional[str]
+    category: Optional[str] = "Uncategorized"
     ref_id: Optional[str]
+    type: str = "DEBIT" # DEBIT or CREDIT
     generate_pattern: bool = True
 
 @router.post("/training/{message_id}/label")
@@ -545,14 +633,21 @@ def label_message(
         date_str = payload.date.strftime("%Y%m%d%H%M%S")
         effective_ref = f"MAN-{date_str}-{payload.account_mask}-{payload.amount:.2f}"
 
+    # Determine effective amount based on type
+    effective_amount = payload.amount
+    if payload.type == "DEBIT":
+        effective_amount = -abs(payload.amount)
+    else:
+        effective_amount = abs(payload.amount)
+
     pending = ingestion_models.PendingTransaction(
         tenant_id=str(current_user.tenant_id),
         account_id=str(account.id),
-        amount=payload.amount,
+        amount=effective_amount,
         date=payload.date,
-        description=f"Labeled: {payload.recipient or 'Unknown'}",
+        description=f"Learned: {payload.recipient or 'Unknown'}",
         recipient=payload.recipient,
-        category="Uncategorized",
+        category=payload.category or "Uncategorized",
         source=msg.source,
         raw_message=msg.raw_content,
         external_id=effective_ref
@@ -562,7 +657,7 @@ def label_message(
     # Pattern Generation Logic
     if payload.generate_pattern:
         try:
-            pattern_str, mapping_json = PatternGenerator.generate_regex_and_config(msg.raw_content, payload.dict())
+            pattern_str, mapping_json = PatternGenerator.generate_regex_and_config(msg.raw_content, payload.dict(), txn_type=payload.type)
             new_pattern = ingestion_models.ParsingPattern(
                 tenant_id=str(current_user.tenant_id),
                 pattern_type=msg.source,
@@ -598,3 +693,73 @@ def dismiss_training_message(
     db.delete(msg)
     db.commit()
     return {"status": "dismissed"}
+
+class BulkTrainingRequest(BaseModel):
+    message_ids: List[str]
+
+@router.post("/training/bulk-dismiss")
+def bulk_dismiss_training(
+    payload: BulkTrainingRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = db.query(ingestion_models.UnparsedMessage).filter(
+        ingestion_models.UnparsedMessage.id.in_(payload.message_ids),
+        ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "deleted", "count": count}
+
+# --- Auditing / Events ---
+
+class IngestionEventRead(BaseModel):
+    id: str
+    device_id: Optional[str]
+    event_type: str
+    status: str
+    message: Optional[str]
+    data_json: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+@router.get("/events")
+def list_ingestion_events(
+    limit: int = 50,
+    skip: int = 0,
+    device_id: Optional[str] = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(ingestion_models.IngestionEvent).filter(
+        ingestion_models.IngestionEvent.tenant_id == str(current_user.tenant_id)
+    )
+    if device_id:
+        query = query.filter(ingestion_models.IngestionEvent.device_id == device_id)
+    
+    total = query.count()
+    items = query.order_by(ingestion_models.IngestionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return {
+        "total": total,
+        "items": items,
+        "limit": limit,
+        "skip": skip
+    }
+
+class BulkDeleteEventsRequest(BaseModel):
+    event_ids: List[str]
+
+@router.post("/events/bulk-delete")
+def bulk_delete_events(
+    payload: BulkDeleteEventsRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db.query(ingestion_models.IngestionEvent).filter(
+        ingestion_models.IngestionEvent.id.in_(payload.event_ids),
+        ingestion_models.IngestionEvent.tenant_id == str(current_user.tenant_id)
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "deleted", "count": len(payload.event_ids)}

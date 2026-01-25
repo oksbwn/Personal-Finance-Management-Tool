@@ -69,6 +69,9 @@ CREATE TABLE transactions (
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	linked_transaction_id VARCHAR,
 	source VARCHAR NOT NULL DEFAULT 'MANUAL',
+	latitude DECIMAL(10, 8),
+	longitude DECIMAL(11, 8),
+	location_name VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -226,6 +229,9 @@ CREATE TABLE pending_transactions (
 	to_account_id VARCHAR,
 	balance NUMERIC(15, 2),
 	credit_limit NUMERIC(15, 2),
+	latitude DECIMAL(10, 8),
+	longitude DECIMAL(11, 8),
+	location_name VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -315,3 +321,17 @@ CREATE TABLE mobile_devices (
     UNIQUE(device_id)
 );
 CREATE INDEX ix_mobile_devices_tenant ON mobile_devices (tenant_id);
+
+CREATE TABLE ingestion_events (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	device_id VARCHAR, 
+	event_type VARCHAR NOT NULL, 
+	status VARCHAR NOT NULL, 
+	message VARCHAR, 
+	data_json TEXT, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_ingestion_events_tenant_device ON ingestion_events (tenant_id, device_id);

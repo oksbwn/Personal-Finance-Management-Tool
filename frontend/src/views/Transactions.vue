@@ -36,8 +36,17 @@ const labelForm = ref({
     account_mask: '',
     recipient: '',
     ref_id: '',
+    category: 'Uncategorized',
+    type: 'DEBIT',
     generate_pattern: true
 })
+
+// Triage & Training Pagination/Selection
+const triagePagination = ref({ total: 0, limit: 10, skip: 0 })
+const trainingPagination = ref({ total: 0, limit: 10, skip: 0 })
+const selectedTriageIds = ref<string[]>([])
+const selectedTrainingIds = ref<string[]>([])
+const isProcessingBulk = ref(false)
 
 // Date Filter State
 const startDate = ref<string>('')
@@ -100,7 +109,7 @@ const accountOptions = computed(() => {
 })
 
 const categoryOptions = computed(() => {
-     // Transform backend categories to select options
+    // Transform backend categories to select options
     return categories.value.map(c => ({
         label: `${c.icon || '🏷️'} ${c.name}`,
         value: c.name
@@ -117,27 +126,27 @@ async function fetchData() {
     loading.value = true
     try {
         if (accounts.value.length === 0) {
-           console.log('[Transactions] Fetching accounts and categories...')
-           const [accRes, catRes, budgetRes] = await Promise.all([
-               financeApi.getAccounts(),
-               financeApi.getCategories(),
-               financeApi.getBudgets()
-           ])
-           accounts.value = accRes.data
-           categories.value = catRes.data
-           budgets.value = budgetRes.data
-           console.log('[Transactions] Loaded', accounts.value.length, 'accounts,', categories.value.length, 'categories, and', budgets.value.length, 'budgets')
+            console.log('[Transactions] Fetching accounts and categories...')
+            const [accRes, catRes, budgetRes] = await Promise.all([
+                financeApi.getAccounts(),
+                financeApi.getCategories(),
+                financeApi.getBudgets()
+            ])
+            accounts.value = accRes.data
+            categories.value = catRes.data
+            budgets.value = budgetRes.data
+            console.log('[Transactions] Loaded', accounts.value.length, 'accounts,', categories.value.length, 'categories, and', budgets.value.length, 'budgets')
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
         }
-        
+
         let start = startDate.value
         let end = endDate.value
 
         // Helper to format date for API (YYYY-MM-DD or ISO)
         // If they are coming from the date inputs, they are already YYYY-MM-DD
-        
+
         console.log('[Transactions] Fetching transactions', {
             page: page.value,
             account: selectedAccount.value || 'all',
@@ -146,20 +155,20 @@ async function fetchData() {
         })
 
         const res = await financeApi.getTransactions(
-            selectedAccount.value || undefined, 
-            page.value, 
+            selectedAccount.value || undefined,
+            page.value,
             pageSize.value,
             start || undefined,
             end || undefined
         )
-        
+
         console.log('[Transactions] API response:', res.data)
         transactions.value = res.data.items
         total.value = res.data.total
-        
+
         if (page.value > Math.ceil(total.value / pageSize.value) && page.value > 1) {
             page.value = 1
-            fetchData() 
+            fetchData()
         }
     } catch (e) {
         console.error("[Transactions] Failed to fetch data", e)
@@ -170,23 +179,78 @@ async function fetchData() {
     }
 }
 
-async function fetchTriage() {
+async function fetchTriage(resetSkip = false) {
     loading.value = true
     try {
+        if (resetSkip) {
+            triagePagination.value.skip = 0
+            trainingPagination.value.skip = 0
+        }
         const [res, trainingRes] = await Promise.all([
-            financeApi.getTriage(),
-            financeApi.getTraining()
+            financeApi.getTriage({ limit: triagePagination.value.limit, skip: triagePagination.value.skip }),
+            financeApi.getTraining({ limit: trainingPagination.value.limit, skip: trainingPagination.value.skip })
         ])
-        triageTransactions.value = res.data.map((t: any) => ({
+
+        triageTransactions.value = res.data.items.map((t: any) => ({
             ...t,
             is_transfer: !!t.is_transfer,
             create_rule: false
         }))
-        unparsedMessages.value = trainingRes.data
+        triagePagination.value.total = res.data.total
+        selectedTriageIds.value = []
+
+        unparsedMessages.value = trainingRes.data.items
+        trainingPagination.value.total = trainingRes.data.total
+        selectedTrainingIds.value = []
+
     } catch (e) {
         console.error("Failed to fetch triage", e)
     } finally {
         loading.value = false
+    }
+}
+
+async function handleBulkRejectTriage() {
+    if (selectedTriageIds.value.length === 0) return
+    isProcessingBulk.value = true
+    try {
+        await financeApi.bulkRejectTriage(selectedTriageIds.value)
+        notify.success(`Discarded ${selectedTriageIds.value.length} items`)
+        fetchTriage()
+    } catch (e) {
+        notify.error("Bulk reject failed")
+    } finally {
+        isProcessingBulk.value = false
+    }
+}
+
+async function handleBulkDismissTraining() {
+    if (selectedTrainingIds.value.length === 0) return
+    isProcessingBulk.value = true
+    try {
+        await financeApi.bulkDismissTraining(selectedTrainingIds.value)
+        notify.success(`Dismissed ${selectedTrainingIds.value.length} items`)
+        fetchTriage()
+    } catch (e) {
+        notify.error("Bulk dismiss failed")
+    } finally {
+        isProcessingBulk.value = false
+    }
+}
+
+function toggleSelectAllTriage() {
+    if (selectedTriageIds.value.length === triageTransactions.value.length) {
+        selectedTriageIds.value = []
+    } else {
+        selectedTriageIds.value = triageTransactions.value.map(t => t.id)
+    }
+}
+
+function toggleSelectAllTraining() {
+    if (selectedTrainingIds.value.length === unparsedMessages.value.length) {
+        selectedTrainingIds.value = []
+    } else {
+        selectedTrainingIds.value = unparsedMessages.value.map(m => m.id)
     }
 }
 
@@ -239,6 +303,8 @@ function startLabeling(msg: any) {
         account_mask: '',
         recipient: '',
         ref_id: '',
+        category: 'Uncategorized',
+        type: 'DEBIT',
         generate_pattern: true
     }
     showLabelForm.value = true
@@ -271,7 +337,7 @@ function handleTimeRangeChange(val: string) {
     const now = new Date()
     const start = new Date()
     const end = new Date()
-    
+
     // Reset to All Time by default
     startDate.value = ''
     endDate.value = ''
@@ -295,11 +361,11 @@ function handleTimeRangeChange(val: string) {
         start.setMonth(start.getMonth() - 1)
         start.setDate(1)
         start.setHours(0, 0, 0, 0)
-        
+
         end.setMonth(end.getMonth())
         end.setDate(0) // Last day of previous month
         end.setHours(23, 59, 59, 999)
-        
+
         startDate.value = start.toISOString()
         endDate.value = end.toISOString()
     } else if (val === 'custom') {
@@ -358,19 +424,19 @@ async function confirmDelete() {
 
 function formatDate(dateStr: string) {
     if (!dateStr) return { day: 'N/A', meta: '' }
-    
+
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) {
         // Try fallback parsing if it's a known non-ISO format
         return { day: '?', meta: dateStr.split('T')[0] || dateStr }
     }
-    
+
     const today = new Date()
     const yesterday = new Date(today)
     yesterday.setDate(yesterday.getDate() - 1)
-    
+
     const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    
+
     // Check if today or yesterday
     if (d.toDateString() === today.toDateString()) {
         return { day: 'Today', meta: time }
@@ -378,7 +444,7 @@ function formatDate(dateStr: string) {
     if (d.toDateString() === yesterday.toDateString()) {
         return { day: 'Yesterday', meta: time }
     }
-    
+
     // Regular date - show day number with time
     const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     return {
@@ -409,8 +475,8 @@ function getCategoryDisplay(name: string) {
 function openAddModal() {
     isEditing.value = false
     editingTxnId.value = null
-    form.value = { 
-        ...defaultForm, 
+    form.value = {
+        ...defaultForm,
         account_id: selectedAccount.value || (accounts.value[0]?.id || ''),
         date: new Date().toISOString().slice(0, 16),
         is_transfer: false,
@@ -459,15 +525,15 @@ async function handleSubmit() {
         if (isEditing.value && editingTxnId.value) {
             await financeApi.updateTransaction(editingTxnId.value, payload)
             notify.success("Transaction updated")
-            
+
             // --- Smart Categorization Detection ---
             if (form.value.category !== originalCategory.value && form.value.category) {
                 // Find similar transactions to see if we should prompt
                 const txn = transactions.value.find(t => t.id === editingTxnId.value)
                 if (txn) {
                     const pattern = txn.recipient || txn.description
-                    const similarCount = transactions.value.filter(t => 
-                        t.id !== txn.id && 
+                    const similarCount = transactions.value.filter(t =>
+                        t.id !== txn.id &&
                         (t.category === 'Uncategorized' || !t.category) &&
                         (txn.recipient ? t.recipient === txn.recipient : t.description === txn.description)
                     ).length
@@ -506,7 +572,7 @@ async function handleSmartCategorize() {
             create_rule: smartPromptData.value.createRule,
             apply_to_similar: smartPromptData.value.applyToSimilar
         })
-        
+
         if (res.data.success) {
             notify.success(`Success! Updated ${res.data.affected} transactions.`)
             if (res.data.rule_created) {
@@ -545,36 +611,25 @@ onMounted(() => {
             <div class="header-left">
                 <h1 class="page-title">Transactions</h1>
                 <div class="header-tabs">
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'list' }"
-                        @click="activeTab = 'list'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
                         List
                     </button>
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'triage' }"
-                        @click="switchTab('triage')"
-                    >
-                        Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length }}</span>
+                    <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
+                        Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
+                            }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
             </div>
-            
+
             <div class="header-actions">
-                <CustomSelect 
-                    v-model="selectedAccount" 
-                    :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]"
-                    placeholder="All Accounts"
-                    @update:modelValue="page=1; fetchData()"
-                    class="account-select"
-                />
-                
+                <CustomSelect v-model="selectedAccount"
+                    :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]" placeholder="All Accounts"
+                    @update:modelValue="page = 1; fetchData()" class="account-select" />
+
                 <button @click="deleteSelected" :disabled="selectedIds.size === 0" class="btn-compact btn-danger">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                     </svg>
                     Delete{{ selectedIds.size > 0 ? ` (${selectedIds.size})` : '' }}
                 </button>
@@ -583,14 +638,14 @@ onMounted(() => {
 
                 <button @click="showImportModal = true" class="btn-compact btn-secondary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                     </svg>
                     Import
                 </button>
-                
+
                 <button v-if="activeTab !== 'triage'" @click="openAddModal" class="btn-compact btn-primary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 5v14M5 12h14"/>
+                        <path d="M12 5v14M5 12h14" />
                     </svg>
                     Add
                 </button>
@@ -605,13 +660,9 @@ onMounted(() => {
                 <div class="filter-group">
                     <span class="filter-label">Time Range:</span>
                     <div class="range-pill-group">
-                        <button 
-                            v-for="opt in timeRangeOptions" 
-                            :key="opt.value"
-                            class="range-pill"
+                        <button v-for="opt in timeRangeOptions" :key="opt.value" class="range-pill"
                             :class="{ active: selectedTimeRange === opt.value }"
-                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)"
-                        >
+                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)">
                             {{ opt.label }}
                         </button>
                     </div>
@@ -620,13 +671,14 @@ onMounted(() => {
                 <div class="filter-divider" v-if="selectedTimeRange === 'custom'"></div>
 
                 <div class="filter-group animate-in" v-if="selectedTimeRange === 'custom'">
-                    <input type="date" v-model="startDate" class="date-input" @change="page=1; fetchData()" />
+                    <input type="date" v-model="startDate" class="date-input" @change="page = 1; fetchData()" />
                     <span class="filter-separator">to</span>
-                    <input type="date" v-model="endDate" class="date-input" @change="page=1; fetchData()" />
+                    <input type="date" v-model="endDate" class="date-input" @change="page = 1; fetchData()" />
                 </div>
             </div>
 
-            <button v-if="startDate || endDate" class="btn-link" @click="selectedTimeRange='all'; handleTimeRangeChange('all')">
+            <button v-if="startDate || endDate" class="btn-link"
+                @click="selectedTimeRange = 'all'; handleTimeRangeChange('all')">
                 Reset
             </button>
         </div>
@@ -643,7 +695,8 @@ onMounted(() => {
                     <thead>
                         <tr>
                             <th class="col-checkbox">
-                                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" :disabled="transactions.length === 0">
+                                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
+                                    :disabled="transactions.length === 0">
                             </th>
                             <th class="col-date">Date</th>
                             <th class="col-recipient">Recipient / Source</th>
@@ -653,9 +706,11 @@ onMounted(() => {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="txn in transactions" :key="txn.id" :class="{ 'row-selected': selectedIds.has(txn.id) }">
+                        <tr v-for="txn in transactions" :key="txn.id"
+                            :class="{ 'row-selected': selectedIds.has(txn.id) }">
                             <td class="col-checkbox">
-                                <input type="checkbox" :checked="selectedIds.has(txn.id)" @change="toggleSelection(txn.id)">
+                                <input type="checkbox" :checked="selectedIds.has(txn.id)"
+                                    @change="toggleSelection(txn.id)">
                             </td>
                             <td class="col-date">
                                 <div class="date-cell">
@@ -674,10 +729,15 @@ onMounted(() => {
                                     <div class="txn-meta-row">
                                         <span class="account-badge">{{ getAccountName(txn.account_id) }}</span>
                                         <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
-                                        <span v-if="txn.is_ai_parsed" class="ai-badge-mini" title="Extracted using Gemini AI">✨ AI</span>
-                             <span v-if="txn.is_transfer" class="ai-badge-mini" style="background: #ecfdf5; color: #059669; border-color: #059669;" title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
-                                        <span class="category-pill" :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
-                                            <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
+                                        <span v-if="txn.is_ai_parsed" class="ai-badge-mini"
+                                            title="Extracted using Gemini AI">✨ AI</span>
+                                        <span v-if="txn.is_transfer" class="ai-badge-mini"
+                                            style="background: #ecfdf5; color: #059669; border-color: #059669;"
+                                            title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
+                                        <span class="category-pill"
+                                            :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
+                                            <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
+                                                }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
@@ -690,30 +750,35 @@ onMounted(() => {
                                 </div>
                             </td>
                             <td class="col-amount">
-                                <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0 && !txn.is_transfer, 'is-expense': Number(txn.amount) < 0 && !txn.is_transfer, 'is-transfer': txn.is_transfer}">
-                                    <span class="amount-icon">{{ txn.is_transfer ? '🔄' : (Number(txn.amount) > 0 ? '↓' : '↑') }}</span>
+                                <div class="amount-cell"
+                                    :class="{ 'is-income': Number(txn.amount) > 0 && !txn.is_transfer, 'is-expense': Number(txn.amount) < 0 && !txn.is_transfer, 'is-transfer': txn.is_transfer }">
+                                    <span class="amount-icon">{{ txn.is_transfer ? '🔄' : (Number(txn.amount) > 0 ? '↓'
+                                        : '↑') }}</span>
                                     <span class="amount-value">{{ formatAmount(Math.abs(Number(txn.amount))) }}</span>
                                 </div>
                             </td>
                             <td class="col-actions">
                                 <button class="icon-btn" @click="openEditModal(txn)" title="Edit">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path
+                                            d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                     </svg>
                                 </button>
                             </td>
                         </tr>
                     </tbody>
                 </table>
-                
+
                 <div v-if="transactions.length === 0" class="empty-state">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                        <path d="M3 9h18M9 21V9"/>
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <path d="M3 9h18M9 21V9" />
                     </svg>
                     <p>No transactions found</p>
                 </div>
-                
+
                 <!-- Compact Pagination -->
                 <div class="pagination-bar" v-if="total > 0">
                     <span class="page-info">
@@ -721,13 +786,15 @@ onMounted(() => {
                     </span>
                     <div class="pagination-controls">
                         <button class="page-btn" :disabled="page === 1" @click="changePage(page - 1)">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M15 18l-6-6 6-6"/>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M15 18l-6-6 6-6" />
                             </svg>
                         </button>
                         <button class="page-btn" :disabled="page >= totalPages" @click="changePage(page + 1)">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M9 18l6-6-6-6"/>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M9 18l6-6-6-6" />
                             </svg>
                         </button>
                     </div>
@@ -739,19 +806,13 @@ onMounted(() => {
             <!-- Triage View -->
             <div v-if="activeTab === 'triage'" class="triage-view animate-in">
                 <div class="triage-tabs mb-6">
-                    <button 
-                        class="triage-tab-btn" 
-                        :class="{ active: activeTriageSubTab === 'pending' }"
-                        @click="activeTriageSubTab = 'pending'"
-                    >
-                        Pending Inbox ({{ triageTransactions.length }})
+                    <button class="triage-tab-btn" :class="{ active: activeTriageSubTab === 'pending' }"
+                        @click="activeTriageSubTab = 'pending'">
+                        Pending Inbox ({{ triagePagination.total }})
                     </button>
-                    <button 
-                        class="triage-tab-btn" 
-                        :class="{ active: activeTriageSubTab === 'training' }"
-                        @click="activeTriageSubTab = 'training'"
-                    >
-                        Training Area ({{ unparsedMessages.length }})
+                    <button class="triage-tab-btn" :class="{ active: activeTriageSubTab === 'training' }"
+                        @click="activeTriageSubTab = 'training'">
+                        Training Area ({{ trainingPagination.total }})
                     </button>
                 </div>
 
@@ -759,383 +820,493 @@ onMounted(() => {
                     <div class="alert-info-glass mb-4">
                         <div class="alert-icon">🔒</div>
                         <div class="alert-text">
-                            <strong>Review Intake</strong>: These transactions were auto-detected but require categorization or confirmation before affecting your balance.
+                            <strong>Review Intake</strong>: These transactions were auto-detected but require
+                            categorization or confirmation before affecting your balance.
                         </div>
                     </div>
 
+                    <div class="bulk-action-bar-triage mb-4 flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-muted">
+                                <input type="checkbox" @change="toggleSelectAllTriage"
+                                    :checked="selectedTriageIds.length === triageTransactions.length && triageTransactions.length > 0"
+                                    class="rounded border-gray-300 text-indigo-600" />
+                                Select All Current
+                            </label>
+                            <button v-if="selectedTriageIds.length > 0" @click="handleBulkRejectTriage"
+                                class="bg-rose-50 text-rose-600 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
+                                🗑️ Discard {{ selectedTriageIds.length }}
+                            </button>
+                        </div>
+                        <button @click="fetchTriage(true)" class="btn-icon-circle-small">🔄</button>
+                    </div>
+
                     <div class="triage-grid">
-                        <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card" :class="[txn.amount < 0 ? 'debit-theme' : 'credit-theme', { 'is-transfer-active': txn.is_transfer }]">
+                        <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card"
+                            :class="[txn.amount < 0 ? 'debit-theme' : 'credit-theme', { 'is-transfer-active': txn.is_transfer, 'selected': selectedTriageIds.includes(txn.id) }]">
                             <div class="triage-card-header">
                                 <div class="header-left">
+                                    <input type="checkbox" v-model="selectedTriageIds" :value="txn.id" class="mr-2" />
                                     <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
-                                    <span v-if="txn.is_ai_parsed" class="ai-badge-mini pulse" title="Extracted using Gemini AI">✨ AI Verified</span>
-                                    <span v-if="txn.is_transfer" class="transfer-badge-mini" title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
+                                    <span v-if="txn.is_ai_parsed" class="ai-badge-mini pulse"
+                                        title="Extracted using Gemini AI">✨ AI Verified</span>
+                                    <span v-if="txn.is_transfer" class="transfer-badge-mini"
+                                        title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
                                 </div>
-                                <span class="triage-date">{{ formatDate(txn.date).day }} <span class="date-sep">•</span> {{ formatDate(txn.date).meta }}</span>
+                                <span class="triage-date">{{ formatDate(txn.date).day }} <span class="date-sep">•</span>
+                                    {{ formatDate(txn.date).meta }}</span>
                             </div>
-                            
+
                             <div class="triage-card-body">
                                 <div class="triage-main-content">
                                     <div class="triage-amount-display" :class="txn.amount < 0 ? 'expense' : 'income'">
                                         <!-- Symbol removed as formatAmount includes it -->
                                         <div class="amount-val">{{ formatAmount(Math.abs(txn.amount)) }}</div>
                                         <div class="amount-indicator">{{ txn.amount < 0 ? 'Debit' : 'Credit' }}</div>
-                                    </div>
-                                    
-                                    <div class="triage-details-info">
-                                        <h3 class="triage-title">{{ txn.recipient || txn.description }}</h3>
-                                        <div class="triage-account-info">
-                                            <span class="acc-indicator"></span>
-                                            {{ getAccountName(txn.account_id) }}
+                                        </div>
+
+                                        <div class="triage-details-info">
+                                            <h3 class="triage-title">{{ txn.recipient || txn.description }}</h3>
+                                            <div class="triage-account-info">
+                                                <span class="acc-indicator"></span>
+                                                {{ getAccountName(txn.account_id) }}
+                                            </div>
                                         </div>
                                     </div>
+
+                                    <div class="triage-meta-pills">
+                                        <div class="meta-pill" v-if="txn.description">
+                                            <span class="pill-icon">📝</span> {{ txn.description }}
+                                        </div>
+                                        <div class="meta-pill" v-if="txn.external_id">
+                                            <span class="pill-icon">🆔</span> {{ txn.external_id }}
+                                        </div>
+                                        <div class="meta-pill highlight" v-if="txn.balance">
+                                            <span class="pill-icon">💰</span> Bal: ₹{{ txn.balance.toFixed(2) }}
+                                        </div>
+                                    </div>
+
+                                    <div v-if="txn.raw_message" class="triage-raw-box">
+                                        <div class="raw-label">Origin Message</div>
+                                        <div class="raw-content-text">{{ txn.raw_message }}</div>
+                                    </div>
                                 </div>
 
-                                <div class="triage-meta-pills">
-                                    <div class="meta-pill" v-if="txn.description">
-                                        <span class="pill-icon">📝</span> {{ txn.description }}
-                                    </div>
-                                    <div class="meta-pill" v-if="txn.external_id">
-                                        <span class="pill-icon">🆔</span> {{ txn.external_id }}
-                                    </div>
-                                    <div class="meta-pill highlight" v-if="txn.balance">
-                                        <span class="pill-icon">💰</span> Bal: ₹{{ txn.balance.toFixed(2) }}
-                                    </div>
-                                </div>
+                                <div class="triage-card-actions">
+                                    <div class="action-top-row">
+                                        <div class="triage-input-group">
+                                            <div class="toggle-control">
+                                                <label class="premium-switch">
+                                                    <input type="checkbox" v-model="txn.is_transfer">
+                                                    <span class="premium-slider"></span>
+                                                </label>
+                                                <span class="toggle-text">{{ txn.is_transfer ? 'Internal Transfer' :
+                                                    'Expense/Income' }}</span>
+                                            </div>
 
-                                <div v-if="txn.raw_message" class="triage-raw-box">
-                                    <div class="raw-label">Origin Message</div>
-                                    <div class="raw-content-text">{{ txn.raw_message }}</div>
+                                            <div class="select-container">
+                                                <CustomSelect v-if="txn.is_transfer" v-model="txn.to_account_id"
+                                                    :options="accountOptions.filter(a => a.value !== txn.account_id)"
+                                                    :placeholder="txn.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'"
+                                                    class="triage-select-premium" />
+                                                <CustomSelect v-else v-model="txn.category" :options="categoryOptions"
+                                                    placeholder="Assign Category" class="triage-select-premium" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="action-bottom-row">
+                                        <button @click="rejectTriage(txn.id)"
+                                            class="btn-triage-secondary">Discard</button>
+
+                                        <div class="approval-cluster">
+                                            <label class="cache-checkbox"
+                                                title="Create rule for future automated handling">
+                                                <input type="checkbox" v-model="txn.create_rule">
+                                                <span class="checkbox-box">
+                                                    <span class="checkbox-icon">💾</span>
+                                                </span>
+                                                <span class="checkbox-text">Save Rule</span>
+                                            </label>
+                                            <button @click="approveTriage(txn)" class="btn-triage-primary">
+                                                Confirm Entry
+                                                <span class="btn-shimmer"></span>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="triage-card-actions">
-                                <div class="action-top-row">
-                                    <div class="triage-input-group">
-                                        <div class="toggle-control">
-                                            <label class="premium-switch">
-                                                <input type="checkbox" v-model="txn.is_transfer">
-                                                <span class="premium-slider"></span>
-                                            </label>
-                                            <span class="toggle-text">{{ txn.is_transfer ? 'Internal Transfer' : 'Expense/Income' }}</span>
-                                        </div>
+                        <div v-if="triagePagination.total === 0" class="empty-state-triage">
+                            <div class="empty-glow-icon">✨</div>
+                            <h3>Inbox zero!</h3>
+                            <p>No new transactions waiting for review.</p>
+                        </div>
 
-                                        <div class="select-container">
-                                            <CustomSelect 
-                                                v-if="txn.is_transfer"
-                                                v-model="txn.to_account_id" 
-                                                :options="accountOptions.filter(a => a.value !== txn.account_id)"
-                                                :placeholder="txn.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'"
-                                                class="triage-select-premium"
-                                            />
-                                            <CustomSelect 
-                                                v-else
-                                                v-model="txn.category" 
-                                                :options="categoryOptions"
-                                                placeholder="Assign Category"
-                                                class="triage-select-premium"
-                                            />
+                        <!-- Triage Pagination -->
+                        <div v-if="triagePagination.total > triagePagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted font-mono">
+                                {{ triagePagination.skip + 1 }}–{{ Math.min(triagePagination.skip +
+                                    triagePagination.limit,
+                                    triagePagination.total) }} of {{ triagePagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="triagePagination.skip -= triagePagination.limit; fetchTriage()"
+                                    :disabled="triagePagination.skip === 0" class="btn-pagination-compact">Prev</button>
+                                <button @click="triagePagination.skip += triagePagination.limit; fetchTriage()"
+                                    :disabled="triagePagination.skip + triagePagination.limit >= triagePagination.total"
+                                    class="btn-pagination-compact">Next</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Training Area -->
+                    <div v-if="activeTriageSubTab === 'training'">
+                        <div class="alert-info-glass mb-4 training-alert">
+                            <div class="alert-icon">🤖</div>
+                            <div class="alert-text">
+                                <strong>Interactive Training</strong>: These messages look like transactions but could
+                                not be parsed. Label them to help the system learn!
+                            </div>
+                        </div>
+
+                        <div class="bulk-action-bar-training mb-4 flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <label
+                                    class="flex items-center gap-2 cursor-pointer text-xs font-bold text-amber-800/60">
+                                    <input type="checkbox" @change="toggleSelectAllTraining"
+                                        :checked="selectedTrainingIds.length === unparsedMessages.length && unparsedMessages.length > 0"
+                                        class="rounded border-amber-300 text-amber-600" />
+                                    Select All Current
+                                </label>
+                                <button v-if="selectedTrainingIds.length > 0" @click="handleBulkDismissTraining"
+                                    class="bg-amber-100 text-amber-800 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
+                                    🗑️ Dismiss {{ selectedTrainingIds.length }}
+                                </button>
+                            </div>
+                            <button @click="fetchTriage(true)" class="btn-icon-circle-small amber-themed">🔄</button>
+                        </div>
+
+                        <div class="triage-grid">
+                            <div v-for="msg in unparsedMessages" :key="msg.id"
+                                class="glass-card triage-card training-theme"
+                                :class="{ 'selected': selectedTrainingIds.includes(msg.id) }">
+                                <div class="triage-card-header">
+                                    <div class="header-left">
+                                        <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
+                                            class="mr-2" />
+                                        <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
+                                        }}</span>
+                                        <span class="ai-badge-mini"
+                                            style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
+                                            Training</span>
+                                    </div>
+                                    <span class="triage-date">{{ formatDate(msg.created_at).day }}</span>
+                                </div>
+
+                                <div class="triage-card-body">
+                                    <div class="training-content-premium">
+                                        <div class="training-header">
+                                            <div class="training-sender" v-if="msg.sender">
+                                                <span class="label">Sender:</span> {{ msg.sender }}
+                                            </div>
+                                            <div class="training-subject" v-if="msg.subject">
+                                                <span class="label">Subject:</span> {{ msg.subject }}
+                                            </div>
                                         </div>
+                                        <pre class="training-raw-preview-premium">{{ msg.raw_content }}</pre>
                                     </div>
                                 </div>
 
-                                <div class="action-bottom-row">
-                                    <button @click="rejectTriage(txn.id)" class="btn-triage-secondary">Discard</button>
-                                    
-                                    <div class="approval-cluster">
-                                        <label class="cache-checkbox" title="Create rule for future automated handling">
-                                            <input type="checkbox" v-model="txn.create_rule">
-                                            <span class="checkbox-box">
-                                                <span class="checkbox-icon">💾</span>
-                                            </span>
-                                            <span class="checkbox-text">Save Rule</span>
-                                        </label>
-                                        <button @click="approveTriage(txn)" class="btn-triage-primary">
-                                            Confirm Entry
+                                <div class="triage-card-actions">
+                                    <div class="action-bottom-row">
+                                        <button @click="dismissTraining(msg.id)"
+                                            class="btn-triage-secondary">Dismiss</button>
+                                        <button @click="startLabeling(msg)" class="btn-triage-primary">
+                                            Label Fields
                                             <span class="btn-shimmer"></span>
                                         </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div v-if="triageTransactions.length === 0" class="empty-state-triage">
-                        <div class="empty-glow-icon">✨</div>
-                        <h3>Inbox zero!</h3>
-                        <p>No new transactions waiting for review.</p>
-                    </div>
-                </div>
-
-                <!-- Training Area -->
-                <div v-if="activeTriageSubTab === 'training'">
-                    <div class="alert-info-glass mb-4 training-alert">
-                        <div class="alert-icon">🤖</div>
-                        <div class="alert-text">
-                            <strong>Interactive Training</strong>: These messages look like transactions but could not be parsed. Label them to help the system learn!
+                        <div v-if="trainingPagination.total === 0" class="empty-state-triage">
+                            <div class="empty-glow-icon">🛡️</div>
+                            <h3>All clear!</h3>
+                            <p>No unparsed messages waiting for training.</p>
                         </div>
-                    </div>
 
-                    <div class="triage-grid">
-                        <div v-for="msg in unparsedMessages" :key="msg.id" class="glass-card triage-card training-theme">
-                            <div class="triage-card-header">
-                                <div class="header-left">
-                                    <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source }}</span>
-                                    <span class="ai-badge-mini" style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs Training</span>
-                                </div>
-                                <span class="triage-date">{{ formatDate(msg.created_at).day }}</span>
-                            </div>
-                            
-                            <div class="triage-card-body">
-                                <div class="training-content-premium">
-                                    <div class="training-header">
-                                        <div class="training-sender" v-if="msg.sender">
-                                            <span class="label">Sender:</span> {{ msg.sender }}
-                                        </div>
-                                        <div class="training-subject" v-if="msg.subject">
-                                            <span class="label">Subject:</span> {{ msg.subject }}
-                                        </div>
-                                    </div>
-                                    <pre class="training-raw-preview-premium">{{ msg.raw_content }}</pre>
-                                </div>
-                            </div>
-
-                            <div class="triage-card-actions">
-                                <div class="action-bottom-row">
-                                    <button @click="dismissTraining(msg.id)" class="btn-triage-secondary">Dismiss</button>
-                                    <button @click="startLabeling(msg)" class="btn-triage-primary">
-                                         Label Fields
-                                         <span class="btn-shimmer"></span>
-                                    </button>
-                                </div>
+                        <!-- Training Pagination -->
+                        <div v-if="trainingPagination.total > trainingPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted font-mono">
+                                {{ trainingPagination.skip + 1 }}–{{ Math.min(trainingPagination.skip +
+                                    trainingPagination.limit, trainingPagination.total) }} of {{ trainingPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="trainingPagination.skip -= trainingPagination.limit; fetchTriage()"
+                                    :disabled="trainingPagination.skip === 0"
+                                    class="btn-pagination-compact amber">Prev</button>
+                                <button @click="trainingPagination.skip += trainingPagination.limit; fetchTriage()"
+                                    :disabled="trainingPagination.skip + trainingPagination.limit >= trainingPagination.total"
+                                    class="btn-pagination-compact amber">Next</button>
                             </div>
                         </div>
                     </div>
-
-                    <div v-if="unparsedMessages.length === 0" class="empty-state-triage">
-                        <div class="empty-glow-icon">🛡️</div>
-                        <h3>All clear!</h3>
-                        <p>No unparsed messages waiting for training.</p>
-                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Global Styled Modal -->
-        <div v-if="showModal" class="modal-overlay-global">
-            <div class="modal-global">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ isEditing ? 'Edit Transaction' : 'Add Transaction' }}</h2>
-                    <button class="btn-icon" @click="showModal = false">✕</button>
-                </div>
-
-                <form @submit.prevent="handleSubmit">
-                    
-                    <div class="form-group" v-if="!isEditing">
-                        <label class="form-label">Account</label>
-                        <CustomSelect 
-                            v-model="form.account_id" 
-                            :options="accountOptions"
-                            placeholder="Select Account"
-                        />
+            <!-- Global Styled Modal -->
+            <div v-if="showModal" class="modal-overlay-global">
+                <div class="modal-global">
+                    <div class="modal-header">
+                        <h2 class="modal-title">{{ isEditing ? 'Edit Transaction' : 'Add Transaction' }}</h2>
+                        <button class="btn-icon" @click="showModal = false">✕</button>
                     </div>
 
-                    <div class="form-layout-row">
-                        <div class="form-group half">
-                            <label class="form-label">Amount (+ Income, - Expense)</label>
-                            <input type="number" step="0.01" v-model="form.amount" class="form-input" required placeholder="-50.00" />
+                    <form @submit.prevent="handleSubmit">
+
+                        <div class="form-group" v-if="!isEditing">
+                            <label class="form-label">Account</label>
+                            <CustomSelect v-model="form.account_id" :options="accountOptions"
+                                placeholder="Select Account" />
                         </div>
-                        <div class="form-group half">
-                            <label class="form-label">Date</label>
-                             <input type="datetime-local" v-model="form.date" class="form-input" required />
-                        </div>
-                    </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Description</label>
-                        <input v-model="form.description" class="form-input" required placeholder="e.g. Grocery shopping" />
-                    </div>
-
-                    <div class="form-group">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                 <label class="form-label" style="margin-bottom: 0;">Category</label>
-                                 <div v-if="currentCategoryBudget" class="budget-preview-tag" :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
-                                     <span class="dot"></span>
-                                     {{ formatAmount(currentCategoryBudget.remaining) }} left
-                                 </div>
-                             </div>
-                             
-                             <div class="toggle-control" style="transform: scale(0.9); transform-origin: right center;">
-                                <label class="premium-switch">
-                                    <input type="checkbox" v-model="form.is_transfer">
-                                    <span class="premium-slider"></span>
-                                </label>
-                                <span class="toggle-text" style="margin-left: 0.5rem;">{{ form.is_transfer ? 'Internal Transfer' : 'Regular' }}</span>
+                        <div class="form-layout-row">
+                            <div class="form-group half">
+                                <label class="form-label">Amount (+ Income, - Expense)</label>
+                                <input type="number" step="0.01" v-model="form.amount" class="form-input" required
+                                    placeholder="-50.00" />
                             </div>
-                        </div>
-
-                        <div v-if="form.is_transfer">
-                             <CustomSelect 
-                                v-model="form.to_account_id"
-                                :options="accountOptions.filter(a => a.value !== form.account_id)"
-                                :placeholder="!form.amount || form.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'" 
-                            />
-                        </div>
-                        <div v-else>
-                            <CustomSelect 
-                                v-model="form.category" 
-                                :options="categoryOptions"
-                                placeholder="Select Category"
-                                allow-new
-                            />
-                        </div>
-                    </div>
-                   
-                    <div class="modal-footer">
-                        <button type="button" @click="showModal = false" class="btn btn-outline">
-                            <span class="icon-spacer">✕</span> Cancel
-                        </button>
-                        <button type="submit" class="btn btn-primary">
-                            <span class="icon-spacer">💾</span> Save
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-
-        <!-- Smart Categorization Prompt -->
-        <div v-if="showSmartPrompt" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 450px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Smart Categorization 🧠</h2>
-                    <button class="btn-icon" @click="showSmartPrompt = false">✕</button>
-                </div>
-                <div style="padding: 1.5rem;">
-                    <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
-                        You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{ smartPromptData.category }}</strong>.
-                    </p>
-                    
-                    <div class="smart-options">
-                        <label class="smart-option-item" v-if="smartPromptData.count > 0">
-                            <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
-                            <span>Apply to <strong>{{ smartPromptData.count }}</strong> similar uncategorized transactions</span>
-                        </label>
-                        
-                        <label class="smart-option-item">
-                            <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
-                            <span>Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{ smartPromptData.category }}</strong> in future</span>
-                        </label>
-                    </div>
-
-                    <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
-                        <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
-                        <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Delete Confirmation Modal -->
-        <div v-if="showDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Delete Transactions</h2>
-                    <button class="btn-icon" @click="showDeleteConfirm = false">✕</button>
-                </div>
-                <div style="padding: 1.5rem; text-align: center;">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">🗑️</div>
-                    <p style="color: #4b5563; margin-bottom: 1.5rem;">
-                        Are you sure you want to delete <strong>{{ selectedIds.size }}</strong> selected transactions? This action cannot be undone.
-                    </p>
-                    <div class="modal-footer" style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
-                        <button class="btn btn-outline" @click="showDeleteConfirm = false">Cancel</button>
-                        <button class="btn btn-danger" @click="confirmDelete" style="background: #ef4444; color: white; border: none;">Delete</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Triage Discard Confirmation Modal -->
-        <div v-if="showDiscardConfirm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Discard Transaction</h2>
-                    <button class="btn-icon" @click="showDiscardConfirm = false">✕</button>
-                </div>
-                <div style="padding: 1.5rem; text-align: center;">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">♻️</div>
-                    <p style="color: #4b5563; margin-bottom: 1.5rem;">
-                        Discard this potential transaction? It will be removed from your review list.
-                    </p>
-                    <div class="modal-footer" style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
-                        <button class="btn btn-outline" @click="showDiscardConfirm = false">Keep It</button>
-                        <button class="btn btn-danger" @click="confirmDiscard" style="background: #ef4444; color: white; border: none;">Discard</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Interactive Labeling Modal -->
-        <div v-if="showLabelForm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 800px;">
-                <div class="modal-header">
-                    <h2 class="modal-title">Label Transaction 🏷️</h2>
-                    <button class="btn-icon" @click="showLabelForm = false">✕</button>
-                </div>
-                
-                <div class="labeling-layout">
-                    <!-- Left: Raw Message -->
-                    <div class="labeling-raw">
-                        <h4 class="section-label">Raw Message</h4>
-                        <div class="raw-content-box">{{ selectedMessage?.raw_content }}</div>
-                        <div class="raw-meta" v-if="selectedMessage?.subject">
-                            <strong>Subject:</strong> {{ selectedMessage.subject }}
-                        </div>
-                    </div>
-
-                    <!-- Right: Form -->
-                    <form @submit.prevent="handleLabelSubmit" class="labeling-form">
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label class="form-label">Amount (₹)</label>
-                                <input type="number" v-model="labelForm.amount" class="form-input" required step="0.01">
-                            </div>
-                            <div class="form-group">
+                            <div class="form-group half">
                                 <label class="form-label">Date</label>
-                                <input type="datetime-local" v-model="labelForm.date" class="form-input" required>
+                                <input type="datetime-local" v-model="form.date" class="form-input" required />
                             </div>
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">Account Mask (Last 4 digits)</label>
-                            <input type="text" v-model="labelForm.account_mask" class="form-input" placeholder="e.g. 1234" required maxlength="4">
+                            <label class="form-label">Description</label>
+                            <input v-model="form.description" class="form-input" required
+                                placeholder="e.g. Grocery shopping" />
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">Recipient / Merchant</label>
-                            <input type="text" v-model="labelForm.recipient" class="form-input" placeholder="e.g. Starbucks">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <label class="form-label" style="margin-bottom: 0;">Category</label>
+                                    <div v-if="currentCategoryBudget" class="budget-preview-tag"
+                                        :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
+                                        <span class="dot"></span>
+                                        {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                    </div>
+                                </div>
+
+                                <div class="toggle-control"
+                                    style="transform: scale(0.9); transform-origin: right center;">
+                                    <label class="premium-switch">
+                                        <input type="checkbox" v-model="form.is_transfer">
+                                        <span class="premium-slider"></span>
+                                    </label>
+                                    <span class="toggle-text" style="margin-left: 0.5rem;">{{ form.is_transfer ?
+                                        'Internal Transfer' : 'Regular' }}</span>
+                                </div>
+                            </div>
+
+                            <div v-if="form.is_transfer">
+                                <CustomSelect v-model="form.to_account_id"
+                                    :options="accountOptions.filter(a => a.value !== form.account_id)"
+                                    :placeholder="!form.amount || form.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'" />
+                            </div>
+                            <div v-else>
+                                <CustomSelect v-model="form.category" :options="categoryOptions"
+                                    placeholder="Select Category" allow-new />
+                            </div>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Reference ID (Optional)</label>
-                            <input type="text" v-model="labelForm.ref_id" class="form-input" placeholder="UTR / TXN ID">
-                        </div>
-
-                        <div class="form-group check-group">
-                            <input type="checkbox" id="genPattern" v-model="labelForm.generate_pattern">
-                            <label for="genPattern">Learn this pattern for future messages</label>
-                        </div>
-
-                        <div class="modal-footer" style="padding: 1.5rem 0 0 0; background: transparent;">
-                            <button type="button" class="btn btn-outline" @click="showLabelForm = false">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Create Pending Transaction</button>
+                        <div class="modal-footer">
+                            <button type="button" @click="showModal = false" class="btn btn-outline">
+                                <span class="icon-spacer">✕</span> Cancel
+                            </button>
+                            <button type="submit" class="btn btn-primary">
+                                <span class="icon-spacer">💾</span> Save
+                            </button>
                         </div>
                     </form>
                 </div>
             </div>
-        </div>
+
+
+            <!-- Smart Categorization Prompt -->
+            <div v-if="showSmartPrompt" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 450px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Smart Categorization 🧠</h2>
+                        <button class="btn-icon" @click="showSmartPrompt = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                            You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
+                                smartPromptData.category }}</strong>.
+                        </p>
+
+                        <div class="smart-options">
+                            <label class="smart-option-item" v-if="smartPromptData.count > 0">
+                                <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
+                                <span>Apply to <strong>{{ smartPromptData.count }}</strong> similar uncategorized
+                                    transactions</span>
+                            </label>
+
+                            <label class="smart-option-item">
+                                <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
+                                <span>Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
+                                    smartPromptData.category }}</strong> in future</span>
+                            </label>
+                        </div>
+
+                        <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
+                            <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
+                            <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete Confirmation Modal -->
+            <div v-if="showDeleteConfirm" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Delete Transactions</h2>
+                        <button class="btn-icon" @click="showDeleteConfirm = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🗑️</div>
+                        <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                            Are you sure you want to delete <strong>{{ selectedIds.size }}</strong> selected
+                            transactions? This action cannot be undone.
+                        </p>
+                        <div class="modal-footer"
+                            style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                            <button class="btn btn-outline" @click="showDeleteConfirm = false">Cancel</button>
+                            <button class="btn btn-danger" @click="confirmDelete"
+                                style="background: #ef4444; color: white; border: none;">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Triage Discard Confirmation Modal -->
+            <div v-if="showDiscardConfirm" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Discard Transaction</h2>
+                        <button class="btn-icon" @click="showDiscardConfirm = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">♻️</div>
+                        <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                            Discard this potential transaction? It will be removed from your review list.
+                        </p>
+                        <div class="modal-footer"
+                            style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                            <button class="btn btn-outline" @click="showDiscardConfirm = false">Keep It</button>
+                            <button class="btn btn-danger" @click="confirmDiscard"
+                                style="background: #ef4444; color: white; border: none;">Discard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Labeling Modal -->
+            <div v-if="showLabelForm" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 750px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Label Transaction 🏷️</h2>
+                        <button class="btn-icon" @click="showLabelForm = false">✕</button>
+                    </div>
+
+                    <div class="labeling-layout">
+                        <!-- Left: Raw Message -->
+                        <div class="labeling-raw">
+                            <h4 class="section-label">Raw Message</h4>
+                            <div class="raw-content-box">{{ selectedMessage?.raw_content }}</div>
+                            <div class="raw-meta" v-if="selectedMessage?.subject">
+                                <strong>Subject:</strong> {{ selectedMessage.subject }}
+                            </div>
+                        </div>
+
+                        <form @submit.prevent="handleLabelSubmit" class="labeling-form">
+                            <div class="form-grid-2">
+                                <div class="form-group">
+                                    <label class="form-label">Amount (₹)</label>
+                                    <input type="number" v-model="labelForm.amount" class="form-input" required
+                                        step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Date</label>
+                                    <input type="datetime-local" v-model="labelForm.date" class="form-input" required>
+                                </div>
+                            </div>
+
+                            <div class="form-grid-2">
+                                <div class="form-group">
+                                    <label class="form-label">Type</label>
+                                    <div class="flex gap-4">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" v-model="labelForm.type" value="DEBIT"
+                                                class="text-indigo-600 focus:ring-indigo-500">
+                                            <span class="text-xs font-semibold text-gray-700">Debit</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" v-model="labelForm.type" value="CREDIT"
+                                                class="text-green-600 focus:ring-green-500">
+                                            <span class="text-xs font-semibold text-gray-700">Credit</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Account Mask</label>
+                                    <input type="text" v-model="labelForm.account_mask" class="form-input"
+                                        placeholder="e.g. 1234" required maxlength="4">
+                                </div>
+                            </div>
+
+                            <div class="form-grid-2">
+                                <div class="form-group">
+                                    <label class="form-label">Recipient / Merchant</label>
+                                    <input type="text" v-model="labelForm.recipient" class="form-input"
+                                        placeholder="e.g. Starbucks">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Reference ID (Optional)</label>
+                                    <input type="text" v-model="labelForm.ref_id" class="form-input"
+                                        placeholder="UTR / TXN ID">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Category</label>
+                                <CustomSelect v-model="labelForm.category" :options="categoryOptions"
+                                    placeholder="Assign Category" />
+                            </div>
+
+                            <div class="form-group check-group" style="margin-top: 0.5rem;">
+                                <input type="checkbox" id="genPattern" v-model="labelForm.generate_pattern">
+                                <label for="genPattern">Learn this pattern for future messages</label>
+                            </div>
+
+                            <div class="modal-footer" style="padding: 1.5rem 0 0 0; background: transparent;">
+                                <button type="button" class="btn btn-outline"
+                                    @click="showLabelForm = false">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Create Pending Transaction</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
     </MainLayout>
 </template>
 
@@ -1182,7 +1353,8 @@ onMounted(() => {
     border: 1px dashed #fbbf24;
 }
 
-.training-sender, .training-subject {
+.training-sender,
+.training-subject {
     font-size: 0.75rem;
     font-weight: 600;
     color: #92400e;
@@ -1211,14 +1383,14 @@ onMounted(() => {
 .labeling-layout {
     display: grid;
     grid-template-columns: 1fr 1.2fr;
-    gap: 2rem;
-    padding: 1.5rem;
+    gap: 1rem;
+    padding: 1rem;
 }
 
 .labeling-raw {
     background: #f9fafb;
     border-radius: 0.75rem;
-    padding: 1rem;
+    padding: 0.75rem;
     border: 1px solid #e5e7eb;
     display: flex;
     flex-direction: column;
@@ -1226,15 +1398,15 @@ onMounted(() => {
 
 .raw-content-box {
     background: white;
-    padding: 1rem;
+    padding: 0.875rem;
     border-radius: 0.5rem;
     font-family: monospace;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     white-space: pre-wrap;
     border: 1px solid #f3f4f6;
     flex-grow: 1;
     overflow-y: auto;
-    max-height: 400px;
+    max-height: 300px;
     color: #111827;
 }
 
@@ -1245,17 +1417,26 @@ onMounted(() => {
 }
 
 .section-label {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
     color: #6b7280;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     letter-spacing: 0.05em;
+}
+
+.labeling-form .form-group {
+    margin-bottom: 0.75rem;
+}
+
+.labeling-form .form-label {
+    font-size: 0.75rem;
+    margin-bottom: 2px;
 }
 
 .labeling-form .form-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.75rem;
 }
 
 .check-group {
@@ -1408,7 +1589,9 @@ onMounted(() => {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Budget Preview Tag (Modal) */
@@ -1440,8 +1623,15 @@ onMounted(() => {
 }
 
 @keyframes slideInLeft {
-    from { opacity: 0; transform: translateX(-10px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 /* Content Card */
@@ -1508,39 +1698,45 @@ onMounted(() => {
 }
 
 /* Column Sizing */
-.col-checkbox { 
-    width: 40px; 
+.col-checkbox {
+    width: 40px;
     text-align: center;
     padding-left: 1rem !important;
 }
-.col-icon { 
-    width: 36px; 
+
+.col-icon {
+    width: 36px;
     text-align: center;
     padding-left: 0.5rem !important;
     padding-right: 0.5rem !important;
 }
-.col-date { 
+
+.col-date {
     width: 110px;
     min-width: 110px;
     font-variant-numeric: tabular-nums;
 }
+
 .col-recipient {
     width: 250px;
     min-width: 200px;
     font-weight: 500;
 }
-.col-description { 
+
+.col-description {
     width: auto;
     min-width: 300px;
     color: #4b5563;
 }
-.col-amount { 
+
+.col-amount {
     width: 120px;
     text-align: right;
     padding-right: 1.5rem !important;
 }
-.col-actions { 
-    width: 50px; 
+
+.col-actions {
+    width: 50px;
     text-align: center;
     padding-right: 1rem !important;
 }
@@ -1804,8 +2000,15 @@ onMounted(() => {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateX(-10px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 .header-divider {
@@ -1943,33 +2146,33 @@ onMounted(() => {
 }
 
 /* Form Styles */
-.form-layout-row { 
-    display: flex; 
-    gap: 1.5rem; 
+.form-layout-row {
+    display: flex;
+    gap: 1.5rem;
 }
 
-.half { 
-    flex: 1; 
+.half {
+    flex: 1;
 }
 
 .form-input {
-    width: 100%; 
+    width: 100%;
     padding: 0.625rem 0.875rem;
-    border: 1px solid #d1d5db; 
+    border: 1px solid #d1d5db;
     border-radius: 0.375rem;
-    font-size: 0.875rem; 
+    font-size: 0.875rem;
     transition: all 0.15s;
     background: white;
 }
 
 .form-input:focus {
-    border-color: #4f46e5; 
+    border-color: #4f46e5;
     outline: none;
     box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
-.icon-spacer { 
-    margin-right: 0.5rem; 
+.icon-spacer {
+    margin-right: 0.5rem;
 }
 
 /* Smart Options */
@@ -1998,6 +2201,7 @@ onMounted(() => {
     height: 1rem;
     cursor: pointer;
 }
+
 /* Tabs Styling */
 .header-tabs {
     display: flex;
@@ -2065,10 +2269,21 @@ onMounted(() => {
     font-size: 1.5rem;
 }
 
-.income .card-icon { background: #ecfdf5; }
-.expense .card-icon { background: #fef2f2; }
-.net .card-icon { background: #eff6ff; }
-.net.is-negative .card-icon { background: #fff7ed; }
+.income .card-icon {
+    background: #ecfdf5;
+}
+
+.expense .card-icon {
+    background: #fef2f2;
+}
+
+.net .card-icon {
+    background: #eff6ff;
+}
+
+.net.is-negative .card-icon {
+    background: #fff7ed;
+}
 
 .card-label {
     display: block;
@@ -2087,9 +2302,17 @@ onMounted(() => {
     color: #111827;
 }
 
-.income .card-value { color: #059669; }
-.expense .card-value { color: #dc2626; }
-.net.is-negative .card-value { color: #d97706; }
+.income .card-value {
+    color: #059669;
+}
+
+.expense .card-value {
+    color: #dc2626;
+}
+
+.net.is-negative .card-value {
+    color: #d97706;
+}
 
 .analytics-main-grid {
     display: grid;
@@ -2197,9 +2420,17 @@ onMounted(() => {
     transition: width 0.3s ease;
 }
 
-.credit-bar-fill.safe { background: #10b981; }
-.credit-bar-fill.warning { background: #f59e0b; }
-.credit-bar-fill.danger { background: #ef4444; }
+.credit-bar-fill.safe {
+    background: #10b981;
+}
+
+.credit-bar-fill.warning {
+    background: #f59e0b;
+}
+
+.credit-bar-fill.danger {
+    background: #ef4444;
+}
 
 .credit-footer {
     display: flex;
@@ -2208,7 +2439,9 @@ onMounted(() => {
     color: #64748b;
 }
 
-.mt-6 { margin-top: 1.5rem; }
+.mt-6 {
+    margin-top: 1.5rem;
+}
 
 .progress-bar-fill {
     height: 100%;
@@ -2274,6 +2507,7 @@ onMounted(() => {
         grid-template-columns: 1fr;
     }
 }
+
 /* Merchant List */
 .merchant-list {
     display: flex;
@@ -2384,8 +2618,13 @@ onMounted(() => {
     transition: width 0.8s ease;
 }
 
-.pattern-bar-fill.weekday { background: #4f46e5; }
-.pattern-bar-fill.weekend { background: #f59e0b; }
+.pattern-bar-fill.weekday {
+    background: #4f46e5;
+}
+
+.pattern-bar-fill.weekend {
+    background: #f59e0b;
+}
 
 /* Triage Area Styles */
 .tab-badge {
@@ -2451,7 +2690,10 @@ onMounted(() => {
     color: var(--color-text-muted);
 }
 
-.date-sep { opacity: 0.3; margin: 0 4px; }
+.date-sep {
+    opacity: 0.3;
+    margin: 0 4px;
+}
 
 .triage-card-body {
     padding: 1.25rem;
@@ -2497,10 +2739,20 @@ onMounted(() => {
 }
 
 /* Themes */
-.debit-theme .triage-amount-display { background: rgba(239, 68, 68, 0.08); color: #dc2626; }
-.credit-theme .triage-amount-display { background: rgba(16, 185, 129, 0.08); color: #059669; }
+.debit-theme .triage-amount-display {
+    background: rgba(239, 68, 68, 0.08);
+    color: #dc2626;
+}
 
-.triage-details-info { flex-grow: 1; }
+.credit-theme .triage-amount-display {
+    background: rgba(16, 185, 129, 0.08);
+    color: #059669;
+}
+
+.triage-details-info {
+    flex-grow: 1;
+}
+
 .triage-title {
     font-size: 1.125rem;
     font-weight: 700;
@@ -2584,7 +2836,11 @@ onMounted(() => {
     border-bottom-right-radius: 1.25rem;
 }
 
-.action-top-row { display: flex; align-items: center; }
+.action-top-row {
+    display: flex;
+    align-items: center;
+}
+
 .triage-input-group {
     display: flex;
     align-items: center;
@@ -2605,7 +2861,9 @@ onMounted(() => {
     color: var(--color-text-muted);
 }
 
-.select-container { flex-grow: 1; }
+.select-container {
+    flex-grow: 1;
+}
 
 .triage-select-premium {
     width: 100%;
@@ -2653,7 +2911,9 @@ onMounted(() => {
     box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
 }
 
-.btn-triage-primary:active { transform: translateY(0); }
+.btn-triage-primary:active {
+    transform: translateY(0);
+}
 
 .btn-shimmer {
     position: absolute;
@@ -2661,12 +2921,10 @@ onMounted(() => {
     left: -100%;
     width: 50%;
     height: 100%;
-    background: linear-gradient(
-        to right,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.2) 50%,
-        rgba(255, 255, 255, 0) 100%
-    );
+    background: linear-gradient(to right,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.2) 50%,
+            rgba(255, 255, 255, 0) 100%);
     transform: skewX(-25deg);
     transition: none;
 }
@@ -2676,7 +2934,9 @@ onMounted(() => {
 }
 
 @keyframes shimmer {
-    100% { left: 150%; }
+    100% {
+        left: 150%;
+    }
 }
 
 .approval-cluster {
@@ -2695,7 +2955,9 @@ onMounted(() => {
     transition: color 0.2s;
 }
 
-.btn-triage-secondary:hover { color: #dc2626; }
+.btn-triage-secondary:hover {
+    color: #dc2626;
+}
 
 .cache-checkbox {
     display: flex;
@@ -2704,7 +2966,9 @@ onMounted(() => {
     cursor: pointer;
 }
 
-.cache-checkbox input { display: none; }
+.cache-checkbox input {
+    display: none;
+}
 
 .checkbox-box {
     width: 28px;
@@ -2723,7 +2987,7 @@ onMounted(() => {
     color: var(--color-text-muted);
 }
 
-.cache-checkbox input:checked + .checkbox-box {
+.cache-checkbox input:checked+.checkbox-box {
     background: #eef2ff;
     color: #4f46e5;
     transform: scale(1.1);
@@ -2735,43 +2999,57 @@ onMounted(() => {
     opacity: 0.5;
 }
 
-.cache-checkbox input:checked + .checkbox-box .checkbox-icon {
+.cache-checkbox input:checked+.checkbox-box .checkbox-icon {
     filter: grayscale(0);
     opacity: 1;
 }
 
 /* Premium Slider */
 .premium-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
 }
 
-.premium-switch input { opacity: 0; width: 0; height: 0; }
+.premium-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
 
 .premium-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #e2e8f0;
-  transition: .4s;
-  border-radius: 34px;
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #e2e8f0;
+    transition: .4s;
+    border-radius: 34px;
 }
 
 .premium-slider:before {
-  position: absolute;
-  content: "";
-  height: 16px; width: 16px;
-  left: 3px; bottom: 3px;
-  background-color: white;
-  transition: .4s;
-  border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-input:checked + .premium-slider { background-color: #4f46e5; }
-input:checked + .premium-slider:before { transform: translateX(18px); }
+input:checked+.premium-slider {
+    background-color: #4f46e5;
+}
+
+input:checked+.premium-slider:before {
+    transform: translateX(18px);
+}
 
 /* Badges */
 .transfer-badge-mini {
@@ -2792,9 +3070,20 @@ input:checked + .premium-slider:before { transform: translateX(18px); }
 }
 
 @keyframes pulse-animation {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.05); opacity: 0.8; }
-    100% { transform: scale(1); opacity: 1; }
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.05);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
 /* Transfer Active State Decoration */
@@ -2814,13 +3103,15 @@ input:checked + .premium-slider:before { transform: translateX(18px); }
     gap: 0.25rem;
 }
 
-.training-sender, .training-subject {
+.training-sender,
+.training-subject {
     font-size: 0.8rem;
     color: var(--color-text-primary);
     font-weight: 500;
 }
 
-.training-sender .label, .training-subject .label {
+.training-sender .label,
+.training-subject .label {
     color: var(--color-text-muted);
     font-weight: 600;
     margin-right: 4px;
@@ -2864,14 +3155,22 @@ input:checked + .premium-slider:before { transform: translateX(18px); }
     align-items: center;
 }
 
-.alert-icon { font-size: 1.25rem; }
-.alert-text { font-size: 0.875rem; color: #1e40af; }
+.alert-icon {
+    font-size: 1.25rem;
+}
+
+.alert-text {
+    font-size: 0.875rem;
+    color: #1e40af;
+}
+
 .ref-id-pill {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    background: #eef2ff; /* Light Indigo */
+    background: #eef2ff;
+    /* Light Indigo */
     border: 1px solid #c7d2fe;
     border-radius: 100px;
     font-size: 10px;
@@ -2890,6 +3189,7 @@ input:checked + .premium-slider:before { transform: translateX(18px); }
     font-size: 10px;
     filter: grayscale(1) opacity(0.7);
 }
+
 .ai-badge-mini {
     display: inline-flex;
     align-items: center;
@@ -2941,74 +3241,80 @@ input:checked + .premium-slider:before { transform: translateX(18px); }
     transition: all 0.2s;
 }
 
-.rule-toggle input:checked + label {
+.rule-toggle input:checked+label {
     opacity: 1;
     transform: scale(1.2);
 }
 
 /* Switch UI */
 .switch {
-  position: relative;
-  display: inline-block;
-  width: 28px;
-  height: 16px;
+    position: relative;
+    display: inline-block;
+    width: 28px;
+    height: 16px;
 }
 
-.switch input { 
-  opacity: 0;
-  width: 0;
-  height: 0;
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
 }
 
 .slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #cbd5e1;
-  -webkit-transition: .4s;
-  transition: .4s;
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #cbd5e1;
+    -webkit-transition: .4s;
+    transition: .4s;
 }
 
 .slider:before {
-  position: absolute;
-  content: "";
-  height: 12px;
-  width: 12px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  -webkit-transition: .4s;
-  transition: .4s;
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    -webkit-transition: .4s;
+    transition: .4s;
 }
 
-input:checked + .slider {
-  background-color: var(--brand-primary, #6366f1);
+input:checked+.slider {
+    background-color: var(--brand-primary, #6366f1);
 }
 
-input:focus + .slider {
-  box-shadow: 0 0 1px var(--brand-primary, #6366f1);
+input:focus+.slider {
+    box-shadow: 0 0 1px var(--brand-primary, #6366f1);
 }
 
-input:checked + .slider:before {
-  -webkit-transform: translateX(12px);
-  -ms-transform: translateX(12px);
-  transform: translateX(12px);
+input:checked+.slider:before {
+    -webkit-transform: translateX(12px);
+    -ms-transform: translateX(12px);
+    transform: translateX(12px);
 }
 
 .slider.round {
-  border-radius: 34px;
+    border-radius: 34px;
 }
 
 .slider.round:before {
-  border-radius: 50%;
+    border-radius: 50%;
 }
 
 .amount-cell.is-transfer {
-    color: #64748b; /* Slate 500 */
+    color: #64748b;
+    /* Slate 500 */
     background: #f1f5f9;
     font-style: italic;
+}
+
+.triage-card.selected {
+    border: 1px solid var(--brand-primary, #6366f1);
+    background: rgba(99, 102, 241, 0.05);
 }
 </style>

@@ -965,6 +965,111 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- RECENT ACTIVITY LOG -->
+                    <div
+                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
+                                    Recent Activity Log
+                                </h3>
+                                <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
+                                    class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
+                                    🗑️ Delete {{ selectedEvents.length }} Selected
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
+                                    eventPagination.total }}</span>
+                                <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh Log">🔄</button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 w-8">
+                                            <input type="checkbox" @change="toggleSelectAllEvents"
+                                                :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </th>
+                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-semibold">Event</th>
+                                        <th class="pb-3 pr-4 font-semibold">Device</th>
+                                        <th class="pb-3 pr-4 font-semibold">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="event in ingestionEvents" :key="event.id"
+                                        class="hover:bg-white/40 transition-colors group">
+                                        <td class="py-3">
+                                            <input type="checkbox" v-model="selectedEvents" :value="event.id"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </td>
+                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                            {{ formatDate(event.created_at).meta }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
+                                                {{ event.event_type.replace('_', ' ') }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 text-xs font-mono text-muted">
+                                            {{ event.device_id }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span :class="{
+                                                'text-emerald-600 bg-emerald-50': event.status === 'success',
+                                                'text-amber-600 bg-amber-50': event.status === 'warning',
+                                                'text-rose-600 bg-rose-50': event.status === 'error',
+                                                'text-slate-600 bg-slate-50': event.status === 'skipped'
+                                            }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                                {{ event.status }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
+                                            {{ event.message }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="ingestionEvents.length === 0">
+                                        <td colspan="6" class="py-12 text-center text-muted italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <span class="text-2xl">🔍</span>
+                                                No activity logs found.
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="eventPagination.total > eventPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
+                                    eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Previous
+                                </button>
+                                <button @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </template>
         </div>
@@ -1462,7 +1567,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                        }}</label>
+                            }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1582,6 +1687,10 @@ const currentUser = ref<any>(null)
 const loading = ref(true)
 const isSyncing = ref(false)
 const syncStatus = ref<any>(null)
+const ingestionEvents = ref<any[]>([])
+const eventPagination = ref({ total: 0, limit: 10, skip: 0 })
+const selectedEvents = ref<string[]>([])
+const isDeletingEvents = ref(false)
 
 // Tenant Rename Modal State
 const showTenantModal = ref(false)
@@ -1835,10 +1944,49 @@ async function fetchData() {
         currentUser.value = meRes.data
         devices.value = devicesRes.data
         fetchAiSettings()
+        fetchIngestionEvents()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
     } finally {
         loading.value = false
+    }
+}
+
+const fetchIngestionEvents = async (deviceId?: string, resetSkip = false) => {
+    try {
+        if (resetSkip) eventPagination.value.skip = 0
+        const res = await financeApi.getIngestionEvents({
+            limit: eventPagination.value.limit,
+            skip: eventPagination.value.skip,
+            device_id: deviceId
+        })
+        ingestionEvents.value = res.data.items
+        eventPagination.value.total = res.data.total
+        selectedEvents.value = []
+    } catch (e) {
+        console.error("Failed to fetch events", e)
+    }
+}
+
+const handleBulkDeleteEvents = async () => {
+    if (selectedEvents.value.length === 0) return
+    isDeletingEvents.value = true
+    try {
+        await financeApi.bulkDeleteEvents(selectedEvents.value)
+        notify.success(`Deleted ${selectedEvents.value.length} events`)
+        fetchIngestionEvents()
+    } catch (e) {
+        notify.error("Failed to delete events")
+    } finally {
+        isDeletingEvents.value = false
+    }
+}
+
+const toggleSelectAllEvents = () => {
+    if (selectedEvents.value.length === ingestionEvents.value.length) {
+        selectedEvents.value = []
+    } else {
+        selectedEvents.value = ingestionEvents.value.map(e => e.id)
     }
 }
 

@@ -3,47 +3,120 @@ import json
 
 class PatternGenerator:
     @staticmethod
-    def generate_regex_and_config(raw_content: str, labels: dict):
+    def generate_regex_and_config(raw_content: str, labels: dict, txn_type: str = "DEBIT"):
         """
-        Attempts to find labels in raw_content and generate a regex.
-        Labels: {amount, date_str, account_mask, recipient, ref_id}
+        Attempts to find labels in raw_content and generate a robust regex.
+        Supports variety of formats for amounts and dates.
         """
         clean_content = " ".join(raw_content.split())
-        escaped_content = re.escape(clean_content)
         
-        mapping = {}
+        mapping = {"type": txn_type}
+        if labels.get("category") and labels.get("category") != "Uncategorized":
+            mapping["category"] = labels.get("category")
+            
         group_idx = 1
         
-        # We process fields from largest string to smallest or in logical order
-        # to avoid partial matches (though re.escape handles some of it)
+        # 1. Prepare search variations for each field
+        search_fields = []
         
-        fields = [
-            ("amount", str(labels.get("amount"))),
-            ("recipient", labels.get("recipient")),
-            ("account_mask", labels.get("account_mask")),
-            ("ref_id", labels.get("ref_id")),
-            # Date is tricky because format might vary, we'll try to find the literal string 
-            # if user provided it matching the message
-        ]
-        
-        current_regex = escaped_content
-        
-        for key, val in fields:
-            if not val: continue
+        # Amount: Try different precision variations
+        amt = labels.get("amount")
+        if amt is not None:
+            try:
+                amt_float = float(amt)
+                variations = [
+                    f"{amt_float:.2f}",
+                    f"{amt_float:.1f}",
+                    str(int(amt_float)),
+                    f"{amt_float:,.2f}" # Commas
+                ]
+                search_fields.append(("amount", list(set(variations))))
+            except: pass
             
-            # Escape the value to find it in the already-escaped content
-            escaped_val = re.escape(val)
+        # Date: Try common SMS date formats for the given date
+        dt = labels.get("date")
+        if dt:
+            if isinstance(dt, str):
+                try:
+                    # Handle ISO format from frontend
+                    dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+                except: pass
             
-            if escaped_val in current_regex:
-                # Replace the FIRST occurrence of the value with a non-greedy group
-                # We use a placeholder to avoid replacing parts of already replaced groups
-                placeholder = f"__GROUP_{group_idx}__"
-                current_regex = current_regex.replace(escaped_val, placeholder, 1)
-                mapping[key] = group_idx
-                group_idx += 1
+            if isinstance(dt, (datetime,)):
+                variations = [
+                    dt.strftime("%d/%m/%y"),
+                    dt.strftime("%d-%m-%y"),
+                    dt.strftime("%d/%m/%Y"),
+                    dt.strftime("%d-%m-%Y"),
+                    dt.strftime("%d %b %y"),
+                    dt.strftime("%d %b %Y"),
+                    dt.strftime("%d-%b-%y"),
+                    dt.strftime("%d/%m"),
+                    dt.strftime("%d %B")
+                ]
+                search_fields.append(("date", list(set(variations))))
 
-        # Final pass: replace placeholders with actual regex groups
-        for i in range(1, group_idx):
-            current_regex = current_regex.replace(f"__GROUP_{i}__", "(.*?)")
+        # Others
+        for key in ["recipient", "account_mask", "ref_id"]:
+            val = labels.get(key)
+            if val:
+                search_fields.append((key, [str(val)]))
+
+        # 2. Find best hits in content (longest match wins to handle overlaps)
+        hits = [] # List of (start, end, key)
+        used_ranges = []
+        
+        # Priority search order to avoid mask/ref-id collisions
+        for key, variations in search_fields:
+            best_match = None
+            # Sort variations by length descending
+            for var in sorted(variations, key=len, reverse=True):
+                if not var or len(var) < 1: continue
+                
+                # Check if it exists in content
+                match = re.search(re.escape(var), clean_content, re.IGNORECASE)
+                if match:
+                    start, end = match.span()
+                    # Check overlap with already found fields
+                    if any(start < ue and end > us for us, ue in used_ranges):
+                        continue
+                    
+                    best_match = (start, end, key)
+                    break
             
-        return current_regex, json.dumps(mapping)
+            if best_match:
+                hits.append(best_match)
+                used_ranges.append((best_match[0], best_match[1]))
+        
+        # Sort hits by start position
+        hits.sort()
+        
+        # 3. Construct regex with anchors
+        regex_parts = []
+        last_pos = 0
+        
+        def process_anchor(text: str) -> str:
+            if not text: return ""
+            # Escape the anchor text
+            escaped = re.escape(text)
+            # Make whitespace flexible
+            escaped = re.sub(r'\\ ', r'\\s*', escaped)
+            # Make digit sequences (dates, balances, OTPs) flexible
+            escaped = re.sub(r'\d{2,}', r'\\d+', escaped)
+            return escaped
+
+        for start, end, key in hits:
+            # Add text between the last match and this one
+            regex_parts.append(process_anchor(clean_content[last_pos:start]))
+            # Add the capture group
+            regex_parts.append("(.*?)")
+            mapping[key] = group_idx
+            group_idx += 1
+            last_pos = end
+            
+        # Add remaining tail
+        regex_parts.append(process_anchor(clean_content[last_pos:]))
+            
+        final_regex = "".join(regex_parts)
+        # Ensure it matches the whole line or segment
+        return final_regex, json.dumps(mapping)

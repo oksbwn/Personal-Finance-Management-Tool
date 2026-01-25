@@ -73,6 +73,21 @@ def run_auto_migrations(engine: Engine):
             );
             """))
             
+            # 4. Add ingestion_events table
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS ingestion_events (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                device_id VARCHAR,
+                event_type VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                message VARCHAR,
+                data_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
+            
             # Explicitly commit the transaction!
             connection.commit()
             print("Auto-migration complete.")

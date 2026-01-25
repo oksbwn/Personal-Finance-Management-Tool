@@ -8,6 +8,7 @@ from backend.app.modules.auth import models as auth_models
 from backend.app.modules.auth import security, services as auth_services
 from backend.app.modules.auth.dependencies import get_current_user
 from backend.app.modules.ingestion import models as ingestion_models
+from backend.app.modules.ingestion.services import IngestionService
 from backend.app.modules.mobile import schemas
 
 router = APIRouter(tags=["Mobile"])
@@ -55,6 +56,15 @@ def mobile_login(
         
     db.commit()
     db.refresh(device)
+    
+    IngestionService.log_event(
+        db, 
+        str(user.tenant_id), 
+        "device_login", 
+        "success", 
+        f"Device {payload.device_name} logged in", 
+        device_id=payload.device_id
+    )
     
     # 3. Issue Long-Lived Token
     # Using 30 days for mobile convenience
@@ -144,6 +154,16 @@ def device_heartbeat(
     device.last_seen_at = datetime.utcnow()
     db.commit()
     db.refresh(device)
+    
+    IngestionService.log_event(
+        db, 
+        str(current_user.tenant_id), 
+        "heartbeat", 
+        "success", 
+        f"Heartbeat from {device.device_name}", 
+        device_id=device.device_id
+    )
+    
     return device
 
 # --- Web Dashboard Management Endpoints (also under /mobile namespace) ---

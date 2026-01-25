@@ -128,12 +128,16 @@ export const financeApi = {
     updateTenant: (id: string, data: any) => apiClient.put(`/auth/tenants/${id}`, data),
 
     // Triage & Training
-    getTriage: () => apiClient.get('/ingestion/triage'),
+    getTriage: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/triage', { params }),
     approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
     rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
-    getTraining: () => apiClient.get('/ingestion/training'),
+    bulkRejectTriage: (ids: string[]) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids }),
+    getTraining: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/training', { params }),
     labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),
     dismissTrainingMessage: (id: string) => apiClient.delete(`/ingestion/training/${id}`),
+    bulkDismissTraining: (ids: string[]) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids }),
+    getIngestionEvents: (params?: { limit?: number, skip?: number, device_id?: string }) => apiClient.get('/ingestion/events', { params }),
+    bulkDeleteEvents: (ids: string[]) => apiClient.post('/ingestion/events/bulk-delete', { event_ids: ids }),
 
     // User Management
     getMe: () => apiClient.get<any>('/auth/me'),

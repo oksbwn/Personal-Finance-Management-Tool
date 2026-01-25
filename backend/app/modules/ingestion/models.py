@@ -128,3 +128,15 @@ class AICallCache(Base):
     model_name = Column(String, nullable=False)
     response_json = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class IngestionEvent(Base):
+    __tablename__ = "ingestion_events"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    device_id = Column(String, nullable=True, index=True) # Optional link to MobileDevice.device_id
+    event_type = Column(String, nullable=False) # sms_received, heartbeat, email_received, parse_failed, etc.
+    status = Column(String, nullable=False) # success, error, warning, skipped
+    message = Column(String, nullable=True)
+    data_json = Column(String, nullable=True) # Extra metadata like sender, message preview, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)

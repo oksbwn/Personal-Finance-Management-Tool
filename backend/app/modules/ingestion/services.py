@@ -1,3 +1,4 @@
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
@@ -9,6 +10,22 @@ from backend.app.modules.ingestion.base import ParsedTransaction
 from backend.app.modules.ingestion.transfer_detector import TransferDetector
 
 class IngestionService:
+    @staticmethod
+    def log_event(db: Session, tenant_id: str, event_type: str, status: str, message: Optional[str] = None, data: Optional[dict] = None, device_id: Optional[str] = None):
+        """
+        Log an ingestion event for auditing.
+        """
+        event = ingestion_models.IngestionEvent(
+            tenant_id=tenant_id,
+            device_id=device_id,
+            event_type=event_type,
+            status=status,
+            message=message,
+            data_json=json.dumps(data) if data else None
+        )
+        db.add(event)
+        db.commit()
+
     @staticmethod
     def match_account(db: Session, tenant_id: str, mask: str) -> Optional[finance_models.Account]:
         """
@@ -97,13 +114,19 @@ class IngestionService:
         is_transfer, to_account_id = TransferDetector.detect(parsed.description, parsed.recipient, all_accounts, all_rules)
         
         # 2. Try to auto-categorize
-        category = TransactionService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
+        # Prioritize category from parser if available (e.g. from Learned Patterns)
+        category = parsed.category
+        
+        if not category or category == "Uncategorized":
+            category = TransactionService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
         
         # If it's a transfer, we force category to "Transfer" if it matches a transfer rule
         if is_transfer:
             category = "Transfer"
         
-        is_auto_ingest = (category != "Uncategorized")
+        # Auto-ingest if we have a real category
+        # If the category came from the parser (not None), we treat it as high confidence
+        is_auto_ingest = (category and category != "Uncategorized")
         
         if is_auto_ingest:
             # High confidence -> Directly to transactions
