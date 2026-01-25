@@ -13,7 +13,22 @@ interface User {
 
 export const useAuthStore = defineStore('auth', () => {
     const user = ref<User | null>(null)
-    const token = ref<string | null>(localStorage.getItem('access_token'))
+
+    const get_url_token = () => {
+        const urlParams = new URLSearchParams(window.location.search)
+        return urlParams.get('auth_token')
+    }
+
+    const token = ref<string | null>(get_url_token() || localStorage.getItem('access_token'))
+
+    if (get_url_token()) {
+        localStorage.setItem('access_token', token.value!)
+        // Clean up URL after consumption
+        const url = new URL(window.location.href)
+        url.searchParams.delete('auth_token')
+        window.history.replaceState({}, '', url.pathname + url.search)
+    }
+
     const isAuthenticated = computed(() => !!token.value)
 
     async function fetchUser() {
@@ -23,7 +38,6 @@ export const useAuthStore = defineStore('auth', () => {
             user.value = response.data
         } catch (error) {
             console.error("Failed to fetch user profile", error)
-            // If 401, logout logic is handled by interceptor, but we can double check
         }
     }
 
@@ -40,9 +54,8 @@ export const useAuthStore = defineStore('auth', () => {
             token.value = response.data.access_token
             if (token.value) {
                 localStorage.setItem('access_token', token.value)
-                await fetchUser() // Fetch profile immediately
+                await fetchUser()
             }
-
         } catch (error) {
             throw error
         }
@@ -54,7 +67,6 @@ export const useAuthStore = defineStore('auth', () => {
         localStorage.removeItem('access_token')
     }
 
-    // Initialize: Fetch user if token exists
     if (token.value) {
         fetchUser()
     }
