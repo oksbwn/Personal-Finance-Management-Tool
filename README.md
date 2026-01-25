@@ -117,3 +117,75 @@ WealthFam is designed with data privacy at its core. By leveraging DuckDB, your 
 
 ---
 *WealthFam: Refine Your Finances*
+
+## 🔄 Data Ingestion Flow
+
+WealthFam features a sophisticated, multi-channel ingestion pipeline designed to minimize manual entry while maintaining 100% data accuracy. 
+
+### How it Works:
+1.  **Multi-Channel Entry**: Data enters via the **Android Mobile App** (real-time SMS), **Automated Email Scanning** (IMAP sync for txn alerts and CAS statements), or **Manual Uploads** (Bank CSVs and Mutual Fund PDFs).
+2.  **Tiered Parsing Intelligence**: Every transaction is processed through a three-tier engine:
+    *   **Static Parsers**: Hardcoded high-performance logic for major banks.
+    *   **Pattern Parser (Learned)**: User-trained regex patterns that evolve as you use the tool.
+    *   **AI Fallback**: Large Language Model (Gemini) parsing for complex or unknown formats.
+3.  **The Human-in-the-loop**: Messages that fail all parsers are moved to the **Training Area**, where a single manual label allows the system to "learn" the new format for all future transactions.
+4.  **Automatic Categorization**: Validated transactions are automatically categorized or sent to **Triage** for a final review if confidence is low.
+
+The following diagram illustrates this end-to-end lifecycle:
+
+```mermaid
+graph TD
+    %% Source Layer
+    subgraph "1. Ingestion Channels"
+        direction TB
+        A["<b>Mobile App</b><br/>(SMS Ingestion)"]
+        B["<b>Email Tracker</b><br/>(IMAP Sync)"]
+        C["<b>Web Dashboard</b><br/>(Manual Upload)"]
+    end
+
+    %% Intelligence Layer
+    subgraph "2. Intelligence Engine"
+        direction LR
+        DET{Format<br/>Detector}
+        
+        A & B --> DET
+        C --> DET
+
+        subgraph "Parsing Logic"
+            P1[Static Bank<br/>Parsers]
+            P2[Learned<br/>Patterns]
+            P3[AI / LLM<br/>Parser]
+        end
+
+        DET -->|Bank / UPI / CC| P1 & P2 & P3
+        DET -->|CAS PDF| MF[MF CAS Parser]
+    end
+
+    %% Storage & Persistence Layer
+    subgraph "3. Validation & Storage"
+        P1 & P2 & P3 --> TXN(Parsed Transaction)
+        MF --> PORT(Portfolio Engine)
+        
+        TXN --> RULE{Rule Engine}
+        
+        RULE -->|High Confidence| LEDG[<b>Confirmed Ledger</b>]
+        RULE -->|Low Confidence| TRIA[<b>Review Triage</b>]
+        
+        PORT -->|XIRR / Performance| HOLD[<b>MF Holdings</b>]
+    end
+
+    %% Learning Loop
+    P1 & P2 & P3 -.->|Failure| UNP[<b>Training Area</b>]
+    UNP -.->|Manual Labeling| P2
+
+    %% Manual Review Path
+    TRIA -->|User Approval| LEDG
+
+    %% Styling
+    style LEDG fill:#1b5e20,color:#fff,stroke:#2e7d32,stroke-width:2px
+    style TRIA fill:#ff8f00,color:#fff,stroke:#ef6c00,stroke-width:2px
+    style UNP fill:#c62828,color:#fff,stroke:#b71c1c,stroke-width:2px
+    style HOLD fill:#1565c0,color:#fff,stroke:#0d47a1,stroke-width:2px
+    style DET fill:#eceff1,stroke:#455a64
+    style RULE fill:#eceff1,stroke:#455a64
+```
