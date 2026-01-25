@@ -60,6 +60,9 @@ class Transaction(Base):
     is_transfer = Column(Boolean, default=False, nullable=False)
     linked_transaction_id = Column(String, nullable=True) # ID of the other leg of a transfer
     source = Column(String, default="MANUAL", nullable=False) # MANUAL, CSV, EXCEL, etc.
+    latitude = Column(Numeric(10, 8), nullable=True)
+    longitude = Column(Numeric(11, 8), nullable=True)
+    location_name = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     linked_transaction = relationship("Transaction", 

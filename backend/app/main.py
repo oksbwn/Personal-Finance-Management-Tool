@@ -7,6 +7,7 @@ import asyncio
 from backend.app.core.config import settings
 from backend.app.core.exceptions import http_exception_handler, generic_exception_handler
 from backend.app.core.database import engine, Base, SessionLocal
+from backend.app.core.migration import run_auto_migrations
 
 # Routers
 from backend.app.modules.auth.router import router as auth_router
@@ -48,6 +49,11 @@ def create_application() -> FastAPI:
     
     
     # DB Creation (Dev only - migrations removed, use fresh schema.sql for setup)
+    # Checks for existing tables.
+    
+    # Run Auto-Migrations (DuckDB Schema Evolution)
+    run_auto_migrations(engine)
+
     Base.metadata.create_all(bind=engine)
 
     # --- Background Tasks ---
