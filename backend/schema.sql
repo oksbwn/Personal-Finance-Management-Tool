@@ -306,6 +306,7 @@ CREATE TABLE mobile_devices (
 	fcm_token VARCHAR, 
 	is_approved BOOLEAN DEFAULT FALSE, 
 	is_enabled BOOLEAN DEFAULT TRUE, 
+	is_ignored BOOLEAN DEFAULT FALSE, 
 	last_seen_at TIMESTAMP WITHOUT TIME ZONE, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 

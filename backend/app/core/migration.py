@@ -48,12 +48,16 @@ def run_auto_migrations(engine: Engine):
                 fcm_token VARCHAR,
                 is_approved BOOLEAN DEFAULT FALSE,
                 is_enabled BOOLEAN DEFAULT TRUE,
+                is_ignored BOOLEAN DEFAULT FALSE,
                 last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(tenant_id) REFERENCES tenants (id),
                 FOREIGN KEY(user_id) REFERENCES users (id)
             );
             """))
+            
+            safe_add_column("mobile_devices", "is_enabled", "BOOLEAN DEFAULT TRUE")
+            safe_add_column("mobile_devices", "is_ignored", "BOOLEAN DEFAULT FALSE")
             
             # 3. Add unparsed_messages table
             connection.execute(text("""
