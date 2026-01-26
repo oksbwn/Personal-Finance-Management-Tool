@@ -133,18 +133,21 @@ WealthFam is designed with data privacy at its core. By leveraging DuckDB, your 
 
 ## 🔄 Data Ingestion Flow
 
-WealthFam features a sophisticated, multi-channel ingestion pipeline designed to minimize manual entry while maintaining 100% data accuracy. 
+WealthFam features a sophisticated, multi-channel ingestion pipeline designed to minimize manual entry while maintaining 100% data accuracy through smart deduplication and noise reduction. 
 
 ### How it Works:
 1.  **Multi-Channel Entry**: Data enters via the **Android Mobile App** (real-time SMS), **Automated Email Scanning** (IMAP sync for txn alerts and CAS statements), or **Manual Uploads** (Bank CSVs and Mutual Fund PDFs).
-2.  **Tiered Parsing Intelligence**: Every transaction is processed through a three-tier engine:
+2.  **Safety & Noise Reduction**:
+    *   **MD5 Deduplication**: Every incoming message generates a unique content hash. The system checks this against both confirmed and pending transactions to prevent duplicates even if emails are re-scanned.
+    *   **Ignore Patterns**: A global filter that silently drops known "noise" (like login alerts or non-transactional bank updates) based on merchant names or message subjects.
+3.  **Tiered Parsing Intelligence**: Validated messages are processed through a three-tier engine:
     *   **Static Parsers**: Hardcoded high-performance logic for major banks.
     *   **Pattern Parser (Learned)**: User-trained regex patterns that evolve as you use the tool.
     *   **AI Fallback**: Large Language Model (Gemini) parsing for complex or unknown formats.
-3.  **The Human-in-the-loop**: Messages that fail all parsers are moved to the **Training Area**, where a single manual label allows the system to "learn" the new format for all future transactions.
-4.  **Automatic Categorization**: Validated transactions are automatically categorized or sent to **Triage** for a final review if confidence is low.
+4.  **The Human-in-the-loop**: Messages that fail all parsers are moved to the **Training Area**. Labels generate new patterns, while "Discard & Ignore" actions update the global noise filters.
+5.  **Automatic Categorization**: Validated transactions are automatically categorized or sent to **Triage** for final review.
 
-The following diagram illustrates this end-to-end lifecycle:
+The following diagram illustrates this enhanced end-to-end lifecycle:
 
 ```mermaid
 graph TD
@@ -156,13 +159,25 @@ graph TD
         C["<b>Web Dashboard</b><br/>(Manual Upload)"]
     end
 
+    %% Safety Layer
+    subgraph "2. Safety & Noise Reduction"
+       direction TB
+       HASH[MD5 Content Hash]
+       DEDUP{Deduplication<br/>Check}
+       IGN{Ignore Patterns<br/>Filter}
+       
+       A & B & C --> HASH
+       HASH --> DEDUP
+       DEDUP -->|Unique| IGN
+       DEDUP -->|Duplicate| SKP[Skip / Log]
+    end
+
     %% Intelligence Layer
-    subgraph "2. Intelligence Engine"
+    subgraph "3. Intelligence Engine"
         direction LR
         DET{Format<br/>Detector}
         
-        A & B --> DET
-        C --> DET
+        IGN -->|Valid| DET
 
         subgraph "Parsing Logic"
             P1[Static Bank<br/>Parsers]
@@ -175,7 +190,7 @@ graph TD
     end
 
     %% Storage & Persistence Layer
-    subgraph "3. Validation & Storage"
+    subgraph "4. Validation & Storage"
         P1 & P2 & P3 --> TXN(Parsed Transaction)
         MF --> PORT(Portfolio Engine)
         
@@ -190,6 +205,8 @@ graph TD
     %% Learning Loop
     P1 & P2 & P3 -.->|Failure| UNP[<b>Training Area</b>]
     UNP -.->|Manual Labeling| P2
+    UNP -.->|Discard & Ignore| IGN
+    TRIA -.->|Discard & Ignore| IGN
 
     %% Manual Review Path
     TRIA -->|User Approval| LEDG
@@ -199,6 +216,8 @@ graph TD
     style TRIA fill:#ff8f00,color:#fff,stroke:#ef6c00,stroke-width:2px
     style UNP fill:#c62828,color:#fff,stroke:#b71c1c,stroke-width:2px
     style HOLD fill:#1565c0,color:#fff,stroke:#0d47a1,stroke-width:2px
-    style DET fill:#eceff1,stroke:#455a64
-    style RULE fill:#eceff1,stroke:#455a64
+    style DEDUP fill:#eceff1,stroke:#455a64
+    style IGN fill:#eceff1,stroke:#455a64
+    style SKP fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
+```
 ```
