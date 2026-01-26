@@ -54,6 +54,7 @@ def auto_sync_job():
     """
     logger.info("[AutoSync] Checking for scheduled syncs...")
     db: Session = SessionLocal()
+    from datetime import datetime
     try:
         configs = db.query(ingestion_models.EmailConfiguration).filter(
             ingestion_models.EmailConfiguration.is_active == True,
@@ -64,7 +65,7 @@ def auto_sync_job():
         for config in configs:
             logger.info(f"[AutoSync] Syncing {config.email}...")
             try:
-                EmailSyncService.sync_emails(
+                result = EmailSyncService.sync_emails(
                     db=db,
                     tenant_id=config.tenant_id,
                     config_id=config.id,
@@ -72,8 +73,14 @@ def auto_sync_job():
                     email_user=config.email,
                     email_pass=config.password,
                     folder=config.folder,
-                    search_criterion='ALL'
+                    search_criterion='ALL',
+                    since_date=config.last_sync_at
                 )
+                
+                if result.get("status") == "completed":
+                    config.last_sync_at = datetime.utcnow()
+                    db.commit()
+                    
             except Exception as e:
                 logger.error(f"[AutoSync] Error syncing {config.email}: {e}")
     except Exception as e:
