@@ -45,6 +45,11 @@ const labelForm = ref({
 const triagePagination = ref({ total: 0, limit: 10, skip: 0 })
 const triageSearchQuery = ref('')
 const triageSourceFilter = ref<'ALL' | 'SMS' | 'EMAIL'>('ALL')
+
+// Main List Filters
+const searchQuery = ref('')
+const categoryFilter = ref('')
+
 const trainingPagination = ref({ total: 0, limit: 10, skip: 0 })
 const filteredTriageTransactions = computed(() => {
     let items = triageTransactions.value
@@ -197,7 +202,9 @@ async function fetchData() {
             page.value,
             pageSize.value,
             start || undefined,
-            end || undefined
+            end || undefined,
+            searchQuery.value || undefined,
+            categoryFilter.value || undefined
         )
 
         console.log('[Transactions] API response:', res.data)
@@ -689,6 +696,16 @@ function switchTab(tab: 'list' | 'analytics' | 'triage') {
     }
 }
 
+// Search debounce
+let searchDebounce: any = null
+watch(searchQuery, () => {
+    if (searchDebounce) clearTimeout(searchDebounce)
+    searchDebounce = setTimeout(() => {
+        page.value = 1
+        fetchData()
+    }, 400)
+})
+
 onMounted(() => {
     fetchData()
     fetchTriage() // Pre-fetch count
@@ -766,10 +783,29 @@ onMounted(() => {
                     <span class="filter-separator">to</span>
                     <input type="date" v-model="endDate" class="date-input" @change="page = 1; fetchData()" />
                 </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group list-search-group">
+                    <div class="list-search-container">
+                        <span class="search-icon-small">🔍</span>
+                        <input type="text" v-model="searchQuery" placeholder="Search description..."
+                            class="list-search-input">
+                    </div>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group">
+                    <CustomSelect v-model="categoryFilter"
+                        :options="[{ label: 'All Categories', value: '' }, ...categoryOptions]"
+                        placeholder="All Categories" @update:modelValue="page = 1; fetchData()"
+                        class="category-filter-select" />
+                </div>
             </div>
 
-            <button v-if="startDate || endDate" class="btn-link"
-                @click="selectedTimeRange = 'all'; handleTimeRangeChange('all')">
+            <button v-if="startDate || endDate || searchQuery || categoryFilter" class="btn-link"
+                @click="selectedTimeRange = 'all'; startDate = ''; endDate = ''; searchQuery = ''; categoryFilter = ''; fetchData()">
                 Reset
             </button>
         </div>
@@ -2050,6 +2086,39 @@ onMounted(() => {
     gap: 0.75rem;
 }
 
+.list-search-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon-small {
+    position: absolute;
+    left: 0.75rem;
+    font-size: 0.8rem;
+    color: #9ca3af;
+}
+
+.list-search-input {
+    padding: 0.45rem 0.75rem 0.45rem 2rem;
+    font-size: 0.8125rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: white;
+    width: 220px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.list-search-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.category-filter-select {
+    min-width: 180px;
+}
+
 .filter-label {
     font-size: 0.7rem;
     font-weight: 700;
@@ -2057,6 +2126,13 @@ onMounted(() => {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     white-space: nowrap;
+}
+
+.filter-divider {
+    width: 1px;
+    height: 24px;
+    background: #e5e7eb;
+    margin: 0 0.25rem;
 }
 
 .range-pill-group {

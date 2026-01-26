@@ -82,6 +82,8 @@ class TransactionService:
         limit: int = 50,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
+        category: Optional[str] = None,
         user_role: str = "ADULT",
         user_id: Optional[str] = None
     ) -> List[models.Transaction]:
@@ -97,6 +99,18 @@ class TransactionService:
             query = query.filter(models.Transaction.date >= start_date)
         if end_date:
             query = query.filter(models.Transaction.date <= end_date)
+        
+        if search:
+            search_pattern = f"%{search}%"
+            from sqlalchemy import or_
+            query = query.filter(or_(
+                models.Transaction.description.ilike(search_pattern),
+                models.Transaction.recipient.ilike(search_pattern)
+            ))
+            
+        if category:
+            query = query.filter(models.Transaction.category == category)
+
         if user_id:
             # Filter by account ownership: show user's accounts OR shared accounts
             from sqlalchemy import or_
@@ -112,6 +126,8 @@ class TransactionService:
         account_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
+        category: Optional[str] = None,
         user_role: str = "ADULT"
     ) -> int:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
@@ -126,6 +142,17 @@ class TransactionService:
             query = query.filter(models.Transaction.date >= start_date)
         if end_date:
             query = query.filter(models.Transaction.date <= end_date)
+            
+        if search:
+            search_pattern = f"%{search}%"
+            from sqlalchemy import or_
+            query = query.filter(or_(
+                models.Transaction.description.ilike(search_pattern),
+                models.Transaction.recipient.ilike(search_pattern)
+            ))
+            
+        if category:
+            query = query.filter(models.Transaction.category == category)
             
         return query.count()
 
