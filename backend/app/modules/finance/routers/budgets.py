@@ -9,12 +9,14 @@ from backend.app.modules.finance.services.budget_service import BudgetService
 
 router = APIRouter()
 
-@router.get("/budgets", response_model=List[schemas.BudgetProgress])
+@router.get("/budgets", response_model=List[schemas.CategoryBudgetProgress])
 def get_budgets(
+    year: int = None,
+    month: int = None,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return BudgetService.get_budgets(db, str(current_user.tenant_id))
+    return BudgetService.get_budgets(db, str(current_user.tenant_id), year=year, month=month)
 
 @router.post("/budgets", response_model=schemas.BudgetRead)
 def set_budget(
@@ -34,3 +36,12 @@ def delete_budget(
     if not success:
         raise HTTPException(status_code=404, detail="Budget not found")
     return {"status": "success"}
+
+@router.get("/budgets/insights")
+def get_ai_insights(
+    year: int = None,
+    month: int = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return BudgetService.get_ai_insights(db, str(current_user.tenant_id), year=year, month=month)

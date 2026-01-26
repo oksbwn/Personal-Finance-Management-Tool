@@ -94,6 +94,39 @@ class GeminiProvider:
             pass
             return None
 
+    def generate_structured_insights(self, config: ingestion_models.AIConfiguration, summary_data: str) -> Optional[List[Dict[str, Any]]]:
+        if not config.api_key:
+            return None
+            
+        client = genai.Client(api_key=config.api_key)
+        model_id = config.model_name or "gemini-1.5-flash"
+        
+        prompt = (
+            "You are a professional financial advisor. Analyze the following financial summary data for a household. "
+            "Return a JSON list of exactly 3 concise insights. Each insight must be a JSON object with: "
+            "'id' (unique string), 'type' (one of: danger, warning, success, info), 'title' (short heading), "
+            "'content' (1-2 sentences), 'icon' (a single emoji relevant to the topic). "
+            "Focus on budget utilization, unusual spending, and income health. "
+            f"\n\nFINANCIAL SUMMARY:\n{summary_data}"
+        )
+        
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=f"{prompt}\n\nRESPONSE FORMAT: JSON Array."
+            )
+            if not response or not response.text:
+                return None
+                
+            text = response.text
+            start = text.find('[')
+            end = text.rfind(']') + 1
+            if start != -1 and end != 0:
+                return json.loads(text[start:end])
+        except Exception:
+            pass
+        return None
+
 class AIService:
     _providers = {
         "gemini": GeminiProvider()
@@ -242,3 +275,24 @@ class AIService:
         summary_str = json.dumps(summary_data, indent=2)
         
         return provider.generate_analysis(config, summary_str)
+
+    @classmethod
+    def generate_structured_insights(cls, db: Session, tenant_id: str, summary_data: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        # 1. Get Config
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id,
+            ingestion_models.AIConfiguration.is_enabled == True
+        ).first()
+
+        if not config:
+            return None
+
+        # 2. Call Provider
+        provider = cls._providers.get(config.provider.lower())
+        if not provider or not hasattr(provider, 'generate_structured_insights'):
+            return None
+
+        # Convert summary to string for the prompt
+        summary_str = json.dumps(summary_data, indent=2)
+        
+        return provider.generate_structured_insights(config, summary_str)
