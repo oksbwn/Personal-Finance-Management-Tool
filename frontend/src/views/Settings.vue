@@ -682,9 +682,45 @@
                     </div>
                 </div>
 
-                <!-- CATEGORIES TAB -->
+                <!-- CATEGORIES TAB - PREMIUM REDESIGN -->
                 <div v-if="activeTab === 'categories'" class="tab-content animate-in">
-                    <!-- Search Bar -->
+                    <!-- Stats Overview -->
+                    <div class="stats-grid mb-8">
+                        <div class="stat-card-premium" @click="activeCategoryFilter = 'all'"
+                            :class="{ active: activeCategoryFilter === 'all' }">
+                            <div class="stat-icon-bg neutral">📊</div>
+                            <div class="stat-details">
+                                <span class="stat-label-xs">Total</span>
+                                <span class="stat-value-sm">{{ categoryStats.total }}</span>
+                            </div>
+                        </div>
+                        <div class="stat-card-premium" @click="activeCategoryFilter = 'expense'"
+                            :class="{ active: activeCategoryFilter === 'expense' }">
+                            <div class="stat-icon-bg danger">💸</div>
+                            <div class="stat-details">
+                                <span class="stat-label-xs">Expenses</span>
+                                <span class="stat-value-sm">{{ categoryStats.expenses }}</span>
+                            </div>
+                        </div>
+                        <div class="stat-card-premium" @click="activeCategoryFilter = 'income'"
+                            :class="{ active: activeCategoryFilter === 'income' }">
+                            <div class="stat-icon-bg success">💰</div>
+                            <div class="stat-details">
+                                <span class="stat-label-xs">Income</span>
+                                <span class="stat-value-sm">{{ categoryStats.income }}</span>
+                            </div>
+                        </div>
+                        <div class="stat-card-premium" @click="activeCategoryFilter = 'transfer'"
+                            :class="{ active: activeCategoryFilter === 'transfer' }">
+                            <div class="stat-icon-bg primary">🔄</div>
+                            <div class="stat-details">
+                                <span class="stat-label-xs">Transfers</span>
+                                <span class="stat-value-sm">{{ categoryStats.transfer }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar -->
                     <div class="account-control-bar mb-6">
                         <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -694,45 +730,55 @@
                             <input type="text" v-model="searchQuery" placeholder="Search categories..."
                                 class="search-input">
                         </div>
-                        <div class="header-with-badge"
-                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
-                            <h3
-                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
-                                Categories</h3>
-                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
-                                categories.filter(c => !searchQuery ||
-                                    c.name.toLowerCase().includes(searchQuery.toLowerCase())).length}} Total</span>
+
+                        <div class="filter-pills-premium">
+                            <button v-for="f in ['all', 'expense', 'income', 'transfer']" :key="f"
+                                @click="activeCategoryFilter = f"
+                                :class="['filter-pill', { active: activeCategoryFilter === f }]">
+                                {{ f.charAt(0).toUpperCase() + f.slice(1) }}
+                            </button>
                         </div>
                     </div>
 
                     <div class="settings-grid">
-                        <div v-for="cat in categories.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))"
-                            :key="cat.id" class="glass-card category-card"
-                            :style="{ borderLeft: `4px solid ${cat.color || '#e5e7eb'}` }">
-                            <div class="category-card-content">
-                                <div class="cat-icon-wrapper" :style="{ background: `${cat.color || '#e5e7eb'}15` }">
-                                    <span class="cat-icon-large">{{ cat.icon }}</span>
+                        <div v-for="cat in filteredCategoriesForTab" :key="cat.id" class="category-card-premium glass"
+                            :style="{ borderLeft: `4px solid ${cat.color || '#3B82F6'}` }">
+                            <div class="cat-card-body">
+                                <div class="cat-icon-frame" :style="{ background: `${cat.color || '#3B82F6'}15` }">
+                                    <span class="cat-emoji">{{ cat.icon }}</span>
                                 </div>
-                                <h3 class="cat-name">{{ cat.name }}</h3>
-                                <span class="cat-type-badge" :class="cat.type || 'expense'">{{ cat.type || 'expense'
-                                }}</span>
-                            </div>
-                            <div class="card-actions">
-                                <button @click="openEditCategoryModal(cat)" class="btn-icon-circle">✏️</button>
-                                <button @click="deleteCategory(cat.id)" class="btn-icon-circle danger">🗑️</button>
+                                <div class="cat-main-info">
+                                    <h3 class="cat-name-text">{{ cat.name }}</h3>
+                                    <span class="cat-type-label" :class="cat.type || 'expense'">
+                                        {{ (cat.type || 'expense').toUpperCase() }}
+                                    </span>
+                                </div>
+                                <div class="cat-actions-overlay">
+                                    <button @click="openEditCategoryModal(cat)" class="btn-icon-subtle bg-white"
+                                        title="Edit">
+                                        <Pencil :size="16" />
+                                    </button>
+                                    <button @click="deleteCategory(cat.id)" class="btn-icon-subtle bg-white danger"
+                                        title="Delete">
+                                        <Trash2 :size="16" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         <!-- Add New Category Card -->
-                        <div v-if="!searchQuery" class="glass-card add-account-card" @click="openAddCategoryModal">
-                            <div class="add-icon-circle">+</div>
-                            <span>Add Category</span>
+                        <div v-if="!searchQuery" class="glass-card add-category-card-premium"
+                            @click="openAddCategoryModal">
+                            <div class="add-circle">+</div>
+                            <span>New Category</span>
                         </div>
                     </div>
 
-                    <div v-if="categories.filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && searchQuery"
-                        class="empty-placeholder">
-                        <p>No categories match "{{ searchQuery }}"</p>
+                    <div v-if="filteredCategoriesForTab.length === 0" class="empty-placeholder">
+                        <div class="empty-state-content">
+                            <div class="empty-icon-large">🏷️</div>
+                            <p>No categories found matching your criteria.</p>
+                        </div>
                     </div>
                 </div>
                 <!-- AI INTEGRATION TAB (RE-DESIGNED) -->
@@ -1502,35 +1548,69 @@
 
         <!-- Add/Edit Category Modal -->
         <div v-if="showCategoryModal" class="modal-overlay-global">
-            <div class="modal-global glass">
+            <div class="modal-global glass premium-modal animate-in">
                 <div class="modal-header">
                     <h2 class="modal-title">{{ isEditingCategory ? 'Edit Category' : 'New Category' }}</h2>
                     <button class="btn-icon-circle" @click="showCategoryModal = false">✕</button>
                 </div>
 
                 <form @submit.prevent="saveCategory" class="form-compact">
-                    <div class="form-group">
-                        <label class="form-label">Icon (Emoji) & Color</label>
-                        <div style="display: flex; gap: 1rem;">
-                            <input v-model="newCategory.icon" class="form-input emoji-input" required
-                                placeholder="🏷️" />
-                            <input type="color" v-model="newCategory.color" class="form-input"
-                                style="height: 3rem; padding: 0.2rem; width: 100%; cursor: pointer;" />
+                    <!-- Preview Section -->
+                    <div class="category-preview-banner mb-6" :style="{ background: `${newCategory.color}10` }">
+                        <div class="preview-icon"
+                            :style="{ background: `${newCategory.color}20`, color: newCategory.color }">
+                            {{ newCategory.icon || '🏷️' }}
+                        </div>
+                        <div class="preview-text">
+                            <div class="preview-name">{{ newCategory.name || 'Category Name' }}</div>
+                            <div class="preview-type">{{ (newCategory.type || 'expense').toUpperCase() }}</div>
                         </div>
                     </div>
-                    <div class="form-group">
+
+                    <div class="form-group mb-6">
+                        <label class="form-label">Icon (Emoji)</label>
+                        <div class="emoji-picker-container">
+                            <input v-model="newCategory.icon" class="form-input emoji-input-large" required
+                                maxlength="2" />
+                            <div class="emoji-grid-subtle">
+                                <span
+                                    v-for="e in ['💰', '🛒', '🚗', '🏠', '🍔', '🎮', '🏥', '✈️', '🎓', '👔', '🛒', '🛍️', '🍿', '🍕']"
+                                    :key="e" @click="newCategory.icon = e" class="emoji-opt">
+                                    {{ e }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-6">
                         <label class="form-label">Category Name</label>
                         <input v-model="newCategory.name" class="form-input" required
                             placeholder="e.g. Subscriptions" />
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Category Type</label>
-                        <CustomSelect v-model="newCategory.type" :options="[
-                            { label: '🔴 Expense', value: 'expense' },
-                            { label: '🟢 Income', value: 'income' },
-                            { label: '🔄 Transfer', value: 'transfer' }
-                        ]" />
+
+                    <div class="form-row mb-6">
+                        <div class="form-group half">
+                            <label class="form-label">Type</label>
+                            <CustomSelect v-model="newCategory.type" :options="[
+                                { label: '🔴 Expense', value: 'expense' },
+                                { label: '🟢 Income', value: 'income' },
+                                { label: '🔄 Transfer', value: 'transfer' }
+                            ]" />
+                        </div>
+                        <div class="form-group half">
+                            <label class="form-label">Theme Color</label>
+                            <div class="color-selection-wrapper">
+                                <input type="color" v-model="newCategory.color" class="color-input-bubble" />
+                                <div class="color-preset-grid">
+                                    <div v-for="c in colorPresets" :key="c" @click="newCategory.color = c"
+                                        class="color-dot" :style="{ background: c }"
+                                        :class="{ active: newCategory.color === c }">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
                     <div class="modal-footer">
                         <button type="button" @click="showCategoryModal = false" class="btn-secondary">Cancel</button>
                         <button type="submit" class="btn-primary-glow">Save Category</button>
@@ -1638,7 +1718,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                        }}</label>
+                            }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1730,6 +1810,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { Pencil, Trash2 } from 'lucide-vue-next'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi, aiApi, mobileApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
@@ -1748,6 +1829,20 @@ function saveSettings() {
 
 const activeTab = ref('general')
 const categories = ref<any[]>([])
+const activeCategoryFilter = ref('all')
+
+const colorPresets = [
+    '#3B82F6', // Blue
+    '#10B981', // Emerald
+    '#F59E0B', // Amber
+    '#EF4444', // Red
+    '#8B5CF6', // Violet
+    '#EC4899', // Pink
+    '#06B6D4', // Cyan
+    '#F97316', // Orange
+    '#6366F1', // Indigo
+    '#64748B', // Slate
+]
 
 // Accounts State
 const accounts = ref<any[]>([])
@@ -1864,6 +1959,27 @@ const filteredRules = computed(() => {
         r.category.toLowerCase().includes(q) ||
         r.keywords.some((k: string) => k.toLowerCase().includes(q))
     )
+})
+
+const filteredCategoriesForTab = computed(() => {
+    let result = categories.value
+    if (activeCategoryFilter.value !== 'all') {
+        result = result.filter(c => (c.type || 'expense') === activeCategoryFilter.value)
+    }
+    if (searchQuery.value) {
+        const q = searchQuery.value.toLowerCase()
+        result = result.filter(c => c.name.toLowerCase().includes(q))
+    }
+    return result
+})
+
+const categoryStats = computed(() => {
+    return {
+        total: categories.value.length,
+        expenses: categories.value.filter(c => (c.type || 'expense') === 'expense').length,
+        income: categories.value.filter(c => c.type === 'income').length,
+        transfer: categories.value.filter(c => c.type === 'transfer').length,
+    }
 })
 const emptyRulesMsg = computed(() => searchQuery.value ? 'No rules match your search.' : 'No rules found. Define rules to automate categorization.')
 const consumedLimitMsg = computed(() => newAccount.value.type === 'CREDIT_CARD' ? 'Consumed Limit' : 'Current Balance')
@@ -6505,5 +6621,591 @@ input:checked+.slider-premium:before {
     background: #f3f4f6;
     padding: 0.1rem 0.3rem;
     border-radius: 4px;
+}
+
+/* --- Category Overhaul Styles --- */
+.stat-card-premium {
+    background: white;
+    padding: 1rem 1.25rem;
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.stat-card-premium:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.06);
+}
+
+.stat-card-premium.active {
+    background: #f8fafc;
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.stat-icon-bg {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.stat-icon-bg.neutral {
+    background: #f1f5f9;
+}
+
+.stat-icon-bg.danger {
+    background: #fef2f2;
+}
+
+.stat-icon-bg.success {
+    background: #ecfdf5;
+}
+
+.stat-icon-bg.primary {
+    background: #eff6ff;
+}
+
+.stat-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-label-xs {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-value-sm {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.filter-pills-premium {
+    display: flex;
+    gap: 0.5rem;
+    background: #f1f5f9;
+    padding: 0.25rem;
+    border-radius: 0.75rem;
+}
+
+.filter-pill {
+    padding: 0.4rem 1rem;
+    border-radius: 0.6rem;
+    border: none;
+    background: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-pill.active {
+    background: white;
+    color: #0f172a;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* --- Layout & Utilities --- */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+}
+
+.mb-2 {
+    margin-bottom: 0.5rem;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
+
+.mb-6 {
+    margin-bottom: 1.5rem;
+}
+
+.mb-8 {
+    margin-bottom: 2rem;
+}
+
+.mb-12 {
+    margin-bottom: 3rem;
+}
+
+.mt-2 {
+    margin-top: 0.5rem;
+}
+
+.mt-4 {
+    margin-top: 1rem;
+}
+
+.mt-6 {
+    margin-top: 1.5rem;
+}
+
+.mt-8 {
+    margin-top: 2rem;
+}
+
+.mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.max-w-7xl {
+    max-width: 80rem;
+}
+
+.space-y-6>*+* {
+    margin-top: 1.5rem;
+}
+
+.w-full {
+    width: 100%;
+}
+
+.width-full {
+    width: 100%;
+}
+
+/* --- AI Integration Styles --- */
+.ai-layout {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+@media (max-width: 1024px) {
+    .ai-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ai-toggle-banner {
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+    padding: 1.5rem 2rem;
+    border-radius: 1.25rem;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);
+}
+
+.ai-toggle-info h3 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin: 0;
+}
+
+.ai-toggle-info p {
+    font-size: 0.875rem;
+    opacity: 0.9;
+    margin: 0.25rem 0 0 0;
+}
+
+.ai-card {
+    background: white;
+    border-radius: 1.25rem;
+    border: 1px solid #f1f5f9;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.ai-card-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #fbfcfe;
+}
+
+.ai-card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0;
+}
+
+.ai-card-body {
+    padding: 1.5rem;
+}
+
+.ai-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ai-input-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 0.25rem;
+}
+
+.ai-input-helper {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 0.375rem;
+}
+
+.ai-btn-primary {
+    background: #4f46e5;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ai-btn-primary:hover {
+    background: #4338ca;
+    transform: translateY(-1px);
+}
+
+.ai-console {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 1.25rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    min-height: 120px;
+    border-top: 1px solid #1e293b;
+}
+
+.switch-premium {
+    position: relative;
+    display: inline-block;
+    width: 52px;
+    height: 28px;
+}
+
+.switch-premium input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider-premium {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.3);
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider-premium:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked+.slider-premium {
+    background-color: #10b981;
+}
+
+input:checked+.slider-premium:before {
+    transform: translateX(24px);
+}
+
+.category-card-premium {
+    position: relative;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    overflow: hidden;
+    background: white;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.category-card-premium:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: var(--shadow-lg);
+}
+
+.cat-card-body {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.cat-icon-frame {
+    width: 48px;
+    height: 48px;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.cat-main-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cat-name-text {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #1e293b;
+    margin-bottom: 0.2rem;
+}
+
+.cat-type-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+}
+
+.cat-type-label.expense {
+    color: #ef4444;
+    background: #fee2e2;
+}
+
+.cat-type-label.income {
+    color: #10b981;
+    background: #dcfce7;
+}
+
+.cat-type-label.transfer {
+    color: #3b82f6;
+    background: #dbeafe;
+}
+
+.cat-actions-overlay {
+    display: flex;
+    gap: 0.4rem;
+    opacity: 0;
+    transform: translateX(10px);
+    transition: all 0.2s;
+}
+
+.category-card-premium:hover .cat-actions-overlay {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.add-category-card-premium {
+    border: 2px dashed #e2e8f0;
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    height: 80px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.add-category-card-premium:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: #f8fafc;
+}
+
+.add-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+/* --- Premium Interaction Elements --- */
+.btn-icon-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid #e2e8f0;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #475569;
+}
+
+.btn-icon-circle:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    transform: scale(1.05);
+    color: var(--color-primary);
+}
+
+.btn-icon-circle.danger:hover {
+    color: #ef4444;
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.btn-icon-subtle {
+    border: none;
+    background: transparent;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    color: #475569;
+}
+
+.btn-icon-subtle:hover {
+    background: #f1f5f9;
+    opacity: 1;
+}
+
+.btn-icon-subtle.bg-white {
+    background: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.btn-icon-subtle.danger {
+    color: #ef4444;
+}
+
+.btn-icon-subtle.danger:hover {
+    background: #fef2f2;
+}
+
+/* Modal Styles */
+.category-preview-banner {
+    padding: 1.25rem;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.preview-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+}
+
+.preview-name {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.preview-type {
+    font-size: 0.65rem;
+    font-weight: 900;
+    opacity: 0.6;
+}
+
+.emoji-picker-container {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.emoji-input-large {
+    width: 64px;
+    height: 64px;
+    text-align: center;
+    font-size: 2rem;
+}
+
+.emoji-grid-subtle {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+    flex: 1;
+}
+
+.emoji-opt {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: transform 0.1s;
+}
+
+.emoji-opt:hover {
+    background: #f1f5f9;
+    transform: scale(1.2);
+}
+
+.color-selection-wrapper {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.color-input-bubble {
+    width: 40px;
+    height: 40px;
+    border: none;
+    padding: 0;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.color-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.35rem;
+}
+
+.color-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+}
+
+.color-dot.active {
+    border-color: white;
+    box-shadow: 0 0 0 2px var(--color-primary);
 }
 </style>
