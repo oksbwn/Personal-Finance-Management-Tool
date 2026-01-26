@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:telephony/telephony.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mobile_app/modules/auth/services/auth_service.dart';
+import 'package:mobile_app/core/services/notification_service.dart';
 
 extension PlatformCheck on TargetPlatform {
   bool get shouldUseTelephony => this == TargetPlatform.android;
@@ -16,34 +16,48 @@ extension PlatformCheck on TargetPlatform {
 // Top-level function for background execution
 @pragma('vm:entry-point')
 void backgroundMessageHandler(SmsMessage message) async {
-  // We need to re-initialize dependencies here as it runs in isolate
-  // Ideally, use WorkManager or just do a fire-and-forget HTTP call if possible.
-  // But we need Config URL. 
-  // For V1 complexity, we might skip background logic if complex, but Telephony supports it.
-  // We'll try to read SharedPreferences for URL.
-  
   if (message.body == null) return;
   debugPrint("Background SMS: ${message.body}");
-  // We can't easily access the full AuthService/AppConfig state here without re-init.
-  // For now, let's focus on Foreground/App Open listening or assume minimal background logic.
-  // The implementation below focuses on the Service class usage in foreground/active state.
 }
 
 class SmsService extends ChangeNotifier {
   final AppConfig _config;
   final AuthService _auth;
+  final NotificationService _notificationService;
   final Telephony _telephony = Telephony.instance;
   late SharedPreferences _prefs;
 
   bool _isSyncEnabled = true;
+  bool _isForegroundServiceEnabled = false;
+
+  // Stats
+  DateTime? _lastSyncTime;
+  int _messagesSyncedToday = 0;
+  String? _lastSyncStatus;
 
   bool get isSyncEnabled => _isSyncEnabled;
+  bool get isForegroundServiceEnabled => _isForegroundServiceEnabled;
+  DateTime? get lastSyncTime => _lastSyncTime;
+  int get messagesSyncedToday => _messagesSyncedToday;
+  String? get lastSyncStatus => _lastSyncStatus;
+  int get queueCount => (_prefs.getStringList(keyQueue) ?? []).length;
 
-  SmsService(this._config, this._auth);
+  SmsService(this._config, this._auth, this._notificationService);
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _isSyncEnabled = _prefs.getBool('is_sync_enabled') ?? true;
+    _isForegroundServiceEnabled = _prefs.getBool('fg_service_enabled') ?? false;
+    _messagesSyncedToday = _prefs.getInt('msgs_synced_today') ?? 0;
+    final lastSyncMs = _prefs.getInt('last_sync_time');
+    if (lastSyncMs != null) {
+       _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncMs);
+       final now = DateTime.now();
+       if (_lastSyncTime!.day != now.day || _lastSyncTime!.month != now.month || _lastSyncTime!.year != now.year) {
+         _messagesSyncedToday = 0;
+         _prefs.setInt('msgs_synced_today', 0);
+       }
+    }
     
     if (kIsWeb || !defaultTargetPlatform.shouldUseTelephony) {
        debugPrint("SMS features disabled: Not on Android.");
@@ -53,6 +67,12 @@ class SmsService extends ChangeNotifier {
     final bool? result = await _telephony.requestPhoneAndSmsPermissions;
     if (result == true) {
       _startListening();
+      if (_isForegroundServiceEnabled && _auth.accessToken != null) {
+        _notificationService.start(
+          url: _config.backendUrl,
+          token: _auth.accessToken!,
+        );
+      }
     }
   }
 
@@ -90,9 +110,11 @@ class SmsService extends ChangeNotifier {
     try {
       final res = await _sendToBackend(address, body, date);
       await _cacheHash(hash);
+      _updateSyncStats(true);
       return res;
     } catch (e) {
       debugPrint("Failed to send SMS to backend: $e");
+      _updateSyncStats(false);
       // Queue for offline Retry (Step 6 requirement)
       _queueForRetry(address, body, date);
       rethrow; // Rethrow for UI to see error if manual
@@ -135,7 +157,6 @@ class SmsService extends ChangeNotifier {
     double? lat;
     double? lng;
     try {
-      // Check permission first to avoid error
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
         Position position = await Geolocator.getCurrentPosition(
@@ -144,9 +165,7 @@ class SmsService extends ChangeNotifier {
         lat = position.latitude;
         lng = position.longitude;
       }
-    } catch (e) {
-      // Ignore location error
-    }
+    } catch (e) { }
 
     final url = Uri.parse('${_config.backendUrl}/api/v1/ingestion/sms');
     
@@ -188,6 +207,7 @@ class SmsService extends ChangeNotifier {
     
     queue.add(jsonEncode(item));
     await _prefs.setStringList(keyQueue, queue);
+    notifyListeners();
   }
 
   Future<void> retryQueue() async {
@@ -204,15 +224,15 @@ class SmsService extends ChangeNotifier {
         final body = item['body'];
         final date = item['date'];
         
-        // We re-hash check just in case
         final hash = _computeHash(address, date.toString(), body);
         if (!_isCached(hash)) {
           await _sendToBackend(address, body, date);
            await _cacheHash(hash);
         }
         successCount++;
+        _updateSyncStats(true);
       } catch (e) {
-        remaining.add(itemStr); // Keep in queue if still failing
+        remaining.add(itemStr);
       }
     }
     
@@ -228,7 +248,6 @@ class SmsService extends ChangeNotifier {
        return 0;
     }
 
-    // Requires READ_SMS permission
     final messages = await _telephony.getInboxSms(
       columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
     );
@@ -246,6 +265,7 @@ class SmsService extends ChangeNotifier {
               await _sendToBackend(msg.address!, msg.body!, msg.date ?? 0);
               await _cacheHash(hash);
               sent++;
+              _updateSyncStats(true);
             } catch (e) {
                _queueForRetry(msg.address!, msg.body!, msg.date ?? 0);
             }
@@ -271,7 +291,42 @@ class SmsService extends ChangeNotifier {
     final res = await _sendToBackend(address, body, date);
     final hash = computeHash(address, date.toString(), body);
     await cacheHash(hash);
+    _updateSyncStats(true);
     notifyListeners();
     return res;
+  }
+
+  void _updateSyncStats(bool success) {
+    _lastSyncTime = DateTime.now();
+    _prefs.setInt('last_sync_time', _lastSyncTime!.millisecondsSinceEpoch);
+    
+    if (success) {
+      _messagesSyncedToday++;
+      _prefs.setInt('msgs_synced_today', _messagesSyncedToday);
+      _lastSyncStatus = "Success";
+    } else {
+      _lastSyncStatus = "Failed";
+    }
+    notifyListeners();
+  }
+
+  Future<void> toggleForegroundService(bool enabled) async {
+    _isForegroundServiceEnabled = enabled;
+    await _prefs.setBool('fg_service_enabled', enabled);
+    
+    if (enabled) {
+      if (_auth.accessToken != null) {
+        final success = await _notificationService.start(
+          url: _config.backendUrl,
+          token: _auth.accessToken!,
+        );
+        if (!success) {
+          throw Exception("Failed to start notification service");
+        }
+      }
+    } else {
+      await _notificationService.stop();
+    }
+    notifyListeners();
   }
 }

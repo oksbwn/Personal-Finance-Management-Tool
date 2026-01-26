@@ -220,13 +220,57 @@ class AnalyticsService:
 
             credit_intelligence.append(intel)
 
+        # 7. Calculate today's total spending
+        from datetime import datetime
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False,
+            models.Transaction.date >= today_start
+        )
+        if user_id:
+            from sqlalchemy import or_
+            today_spending_query = today_spending_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
+        today_total = abs(float(today_spending_query.scalar() or 0))
+        
+        # 8. Get latest transaction (most recent expense)
+        latest_txn_query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        )
+        if user_id:
+            from sqlalchemy import or_
+            latest_txn_query = latest_txn_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
+        latest_txn = latest_txn_query.order_by(models.Transaction.date.desc()).first()
+        
+        latest_transaction_data = None
+        if latest_txn:
+            latest_transaction_data = {
+                "amount": abs(float(latest_txn.amount)),
+                "description": latest_txn.description,
+                "time": latest_txn.date.strftime("%H:%M") if latest_txn.date else ""
+            }
+
         return {
             "breakdown": breakdown,
-            "monthly_spending": monthly_spending,
+            "today_total": today_total,
+            "monthly_total": monthly_spending,
+            "monthly_spending": monthly_spending,  # Keep for backward compatibility
             "top_spending_category": top_spending_category,
             "budget_health": budget_health,
             "credit_intelligence": credit_intelligence,
             "recent_transactions": enriched_txns,
+            "latest_transaction": latest_transaction_data,
             "currency": accounts[0].currency if accounts else "INR"
         }
 

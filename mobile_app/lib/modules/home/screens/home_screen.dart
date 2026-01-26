@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:mobile_app/core/config/app_config.dart';
 import 'package:mobile_app/core/theme/app_theme.dart';
@@ -9,6 +11,8 @@ import 'package:mobile_app/modules/auth/services/auth_service.dart';
 import 'package:mobile_app/modules/ingestion/services/sms_service.dart';
 import 'package:mobile_app/modules/ingestion/screens/sms_management_screen.dart';
 import 'package:mobile_app/modules/config/screens/config_screen.dart';
+import 'package:mobile_app/modules/auth/services/security_service.dart';
+import 'package:mobile_app/core/services/foreground_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -96,48 +100,50 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    final scaffold = Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        child: IndexedStack(
-          index: _currentIndex,
-          children: [
-            // Tab 1: WebView Dashboard
-            Container(
-              color: theme.brightness == Brightness.dark ? AppTheme.darkBg : Colors.white,
-              child: Stack(
-                children: [
-                  WebViewWidget(controller: _webController),
-                  if (_isLoadingWeb)
-                    Center(child: CircularProgressIndicator(color: theme.primaryColor)),
-                ],
+    final scaffold = WithForegroundTask(
+      child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
+          child: IndexedStack(
+            index: _currentIndex,
+            children: [
+              // Tab 1: WebView Dashboard
+              Container(
+                color: theme.brightness == Brightness.dark ? AppTheme.darkBg : Colors.white,
+                child: Stack(
+                  children: [
+                    WebViewWidget(controller: _webController),
+                    if (_isLoadingWeb)
+                      Center(child: CircularProgressIndicator(color: theme.primaryColor)),
+                  ],
+                ),
               ),
+              
+              // Tab 2: Native Settings / Sync
+              _buildNativeSettings(context),
+            ],
+          ),
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: _onTabTapped,
+          backgroundColor: theme.colorScheme.surface,
+          selectedItemColor: theme.primaryColor,
+          unselectedItemColor: theme.colorScheme.onSurfaceVariant.withOpacity(0.6),
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_outlined),
+              activeIcon: Icon(Icons.dashboard),
+              label: 'Dashboard',
             ),
-            
-            // Tab 2: Native Settings / Sync
-            _buildNativeSettings(context),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_suggest_outlined),
+              activeIcon: Icon(Icons.settings_suggest),
+              label: 'Sync & Config',
+            ),
           ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _onTabTapped,
-        backgroundColor: theme.colorScheme.surface,
-        selectedItemColor: theme.primaryColor,
-        unselectedItemColor: theme.colorScheme.onSurfaceVariant.withOpacity(0.6),
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_suggest_outlined),
-            activeIcon: Icon(Icons.settings_suggest),
-            label: 'Sync & Config',
-          ),
-        ],
       ),
     );
 
@@ -200,6 +206,37 @@ class _HomeScreenState extends State<HomeScreen> {
               value: context.watch<SmsService>().isSyncEnabled, 
               onChanged: (v) => context.read<SmsService>().toggleSync(v),
             ), 
+          ),
+          
+          const SizedBox(height: 16),
+          _buildSyncHealthCard(context),
+          
+          const SizedBox(height: 16),
+          _buildSecurityToggle(
+            context,
+            title: 'Persistent Sync',
+            subtitle: 'Keep app alive for better reliability',
+            value: context.watch<SmsService>().isForegroundServiceEnabled,
+            onChanged: (v) async {
+              try {
+                await context.read<SmsService>().toggleForegroundService(v);
+                if (context.mounted) {
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     SnackBar(content: Text(v ? 'Background Sync Started' : 'Background Sync Stopped'))
+                   );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     SnackBar(
+                       content: Text('Operation Failed: $e'), 
+                       backgroundColor: AppTheme.danger,
+                       duration: const Duration(seconds: 10),
+                     )
+                   );
+                }
+              }
+            },
           ),
 
           const SizedBox(height: 32),
@@ -272,6 +309,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildConfigItem('Backend', config.backendUrl),
                 const SizedBox(height: 8),
                 _buildConfigItem('Web UI', config.webUiUrl),
+                Divider(height: 32, color: theme.dividerColor),
+                Text('APP SECURITY', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                const SizedBox(height: 8),
+                _buildSecurityToggle(
+                  context,
+                  title: 'Biometric Lock',
+                  subtitle: 'Require fingerprint/face to open',
+                  value: context.watch<SecurityService>().isBiometricEnabled,
+                  onChanged: (v) => context.read<SecurityService>().setBiometricEnabled(v),
+                ),
+                _buildSecurityToggle(
+                  context,
+                  title: 'Privacy Masking',
+                  subtitle: 'Blur app in multitasking view',
+                  value: context.watch<SecurityService>().isPrivacyEnabled,
+                  onChanged: (v) => context.read<SecurityService>().setPrivacyEnabled(v),
+                ),
                 Divider(height: 32, color: theme.dividerColor),
                 Text('DEVICE IDENTIFIER', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
                 const SizedBox(height: 12),
@@ -370,6 +424,98 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSyncHealthCard(BuildContext context) {
+    final sms = context.watch<SmsService>();
+    final theme = Theme.of(context);
+    final lastSyncStr = sms.lastSyncTime != null 
+        ? DateFormat('HH:mm').format(sms.lastSyncTime!) 
+        : 'Never';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.health_and_safety_outlined, size: 16, color: theme.primaryColor),
+              const SizedBox(width: 8),
+              const Text('Sync Health', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const Spacer(),
+              Text(sms.lastSyncStatus ?? 'Standby', 
+                style: TextStyle(
+                  color: sms.lastSyncStatus == 'Success' ? AppTheme.success : theme.colorScheme.onSurfaceVariant,
+                  fontSize: 12, fontWeight: FontWeight.bold
+                )
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildHealthStat('Last Sync', lastSyncStr),
+              _buildHealthStat('Today', sms.messagesSyncedToday.toString()),
+              _buildHealthStat('Queue', sms.queueCount.toString(), isWarning: sms.queueCount > 0),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthStat(String label, String value, {bool isWarning = false}) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 11)),
+        Text(value, style: TextStyle(
+          fontWeight: FontWeight.bold, 
+          fontSize: 16,
+          color: isWarning ? AppTheme.warning : theme.colorScheme.onSurface
+        )),
+      ],
+    );
+  }
+
+  Widget _buildSecurityToggle(BuildContext context, {
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                Text(subtitle, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 11)),
+              ],
+            ),
+          ),
+          Transform.scale(
+            scale: 0.8,
+            child: Switch(
+              value: value,
+              onChanged: onChanged,
+            ),
+          ),
         ],
       ),
     );

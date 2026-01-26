@@ -48,6 +48,10 @@ dependencies:
   file_picker: ^10.3.8
   telephony: ^0.2.0
   intl: ^0.20.2
+  local_auth: ^2.3.0
+  screen_protector: ^1.2.0
+  flutter_foreground_task: ^9.2.0
+  flutter_local_notifications: ^18.0.1
   device_info_plus: ^12.3.0
   webview_flutter_web: any
 

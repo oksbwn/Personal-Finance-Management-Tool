@@ -30,8 +30,9 @@ class AuthService extends ChangeNotifier {
     _accessToken = await _storage.read(key: 'access_token');
     _tenantId = await _storage.read(key: 'tenant_id');
     _deviceId = await _storage.read(key: 'device_id');
+    _deviceName = await _storage.read(key: 'device_name');
     
-    if (_deviceId == null) {
+    if (_deviceId == null || _deviceName == null) {
       await _initDeviceInfo();
     }
 
@@ -74,7 +75,13 @@ class AuthService extends ChangeNotifier {
       _deviceId = 'unknown-${DateTime.now().millisecondsSinceEpoch}';
       _deviceName = 'Unknown Device';
     }
+    
+    // Ensure we always have a device name fallback
+    _deviceName ??= 'Mobile Device';
+    
     await _storage.write(key: 'device_id', value: _deviceId);
+    await _storage.write(key: 'device_name', value: _deviceName);
+    debugPrint('Device Info initialized: ID=$_deviceId, Name=$_deviceName');
   }
 
   Future<void> setDeviceId(String id) async {
