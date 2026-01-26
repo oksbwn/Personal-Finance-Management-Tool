@@ -87,7 +87,8 @@ export const financeApi = {
     updateCategory: (id: string, data: any) => apiClient.put(`/finance/categories/${id}`, data),
     deleteCategory: (id: string) => apiClient.delete(`/finance/categories/${id}`),
 
-    getBudgets: () => apiClient.get('/finance/budgets'),
+    getBudgets: (year?: number, month?: number) => apiClient.get('/finance/budgets', { params: { year, month } }),
+    getBudgetsInsights: (year?: number, month?: number) => apiClient.get('/finance/budgets/insights', { params: { year, month } }),
     setBudget: (data: any) => apiClient.post('/finance/budgets', data),
     deleteBudget: (id: string) => apiClient.delete(`/finance/budgets/${id}`),
 
