@@ -160,6 +160,7 @@ class TransactionService:
         to_account_id = update_data.get('to_account_id')
         
         if is_transfer_update is True:
+            db_txn.is_transfer = True
             if not to_account_id and not db_txn.linked_transaction_id:
                  pass 
 
@@ -188,6 +189,7 @@ class TransactionService:
                 update_data['category'] = "Transfer"
 
         elif is_transfer_update is False:
+            db_txn.is_transfer = False
             if db_txn.linked_transaction_id:
                 linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
                 if linked: db.delete(linked)
