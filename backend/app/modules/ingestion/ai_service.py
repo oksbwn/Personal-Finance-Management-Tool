@@ -128,14 +128,32 @@ class AIService:
 
         prompts = json.loads(config.prompts_json or "{}")
         default_prompt = (
-            "Extract transaction details from the following message. "
-            "Return JSON with: amount (number), date (DD/MM/YYYY), recipient (string), account_mask (4 digits), ref_id (string or null), type (DEBIT/CREDIT), balance (number or null), credit_limit (number or null)."
+            "You are a financial parsing expert. Analyze the following message and determine if it describes a financial transaction "
+            "(like an expense, credit, bank transfer, bill payment, etc.). "
+            "Return a JSON object with the following keys:\n"
+            "- 'is_transaction': Set to false if it is NOT a transaction (e.g., login alert, OTP, promotional email), otherwise true.\n"
+            "- 'amount': number (absolute value)\n"
+            "- 'date': DD/MM/YYYY\n"
+            "- 'recipient': string (merchant name)\n"
+            "- 'account_mask': 4 digits\n"
+            "- 'ref_id': string or null\n"
+            "- 'type': DEBIT or CREDIT\n"
+            "- 'balance': number or null\n"
+            "- 'credit_limit': number or null"
         )
         prompt = prompts.get(task, default_prompt)
 
         result = provider.parse(config, content, prompt)
 
         if result:
+            # Check if AI explicitly marked it as non-transactional
+            if result.get("is_transaction") is False:
+                return None
+            
+            # Additional safety: if amount is 0 and it's not a known special case, skip
+            if result.get("amount") == 0 and not result.get("is_transfer"):
+                 return None
+
             # 4. Store in Cache
             new_cache = ingestion_models.AICallCache(
                 tenant_id=tenant_id,

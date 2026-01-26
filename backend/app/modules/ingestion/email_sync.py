@@ -130,6 +130,14 @@ class EmailSyncService:
                                 email_date = parsedate_to_datetime(msg.get("Date"))
                             except: pass
 
+                            # --- QUICK FILTER: Ignore obvious non-transactional noise ---
+                            noise_keywords = ["otp", "login alert", "successful login", "welcome", "your statement is ready", "appointment", "newsletter", "verify your email"]
+                            subject_lower = subject.lower()
+                            if any(nk in subject_lower for nk in noise_keywords):
+                                stats["failed"] += 1
+                                stats["errors"].append(f"Skipped noise: {subject[:30]}...")
+                                continue
+
                             # Parse via Registry
                             parsed = EmailParserRegistry.parse(subject, body, db, tenant_id, email_date)
                             if parsed:

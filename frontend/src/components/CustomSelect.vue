@@ -7,12 +7,24 @@ const props = defineProps<{
     placeholder?: string
     label?: string
     required?: boolean
+    allowNew?: boolean
 }>()
 
 const emit = defineEmits(['update:modelValue'])
 
 const isOpen = ref(false)
+const searchQuery = ref('')
 const containerRef = ref<HTMLElement | null>(null)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+const filteredOptions = computed(() => {
+    if (!searchQuery.value) return props.options
+    const query = searchQuery.value.toLowerCase()
+    return props.options.filter(o =>
+        o.label.toLowerCase().includes(query) ||
+        String(o.value).toLowerCase().includes(query)
+    )
+})
 
 const selectedLabel = computed(() => {
     const opt = props.options.find(o => o.value === props.modelValue)
@@ -21,11 +33,19 @@ const selectedLabel = computed(() => {
 
 function toggle() {
     isOpen.value = !isOpen.value
+    if (isOpen.value) {
+        searchQuery.value = ''
+        // Auto-focus search on next tick
+        setTimeout(() => {
+            searchInputRef.value?.focus()
+        }, 50)
+    }
 }
 
-function select(value: string | number) {
+function select(value: any) {
     emit('update:modelValue', value)
     isOpen.value = false
+    searchQuery.value = ''
 }
 
 // Close when clicking outside
@@ -41,17 +61,30 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
 
 <template>
     <div class="custom-select-container" ref="containerRef">
-        <div class="select-trigger form-input" :class="{ 'open': isOpen, 'placeholder': !modelValue }" @click="toggle">
-            <span>{{ selectedLabel }}</span>
+        <div class="select-trigger form-input" :class="{ 'open': isOpen, 'placeholder': !modelValue }" @click="toggle"
+            tabindex="0" @keydown.enter.prevent="toggle" @keydown.space.prevent="toggle">
+            <span class="truncate">{{ selectedLabel }}</span>
             <span class="chevron">▼</span>
         </div>
 
         <transition name="fade">
             <div v-if="isOpen" class="options-container">
-                <div v-for="opt in options" :key="opt.value" class="option-item"
-                    :class="{ 'selected': opt.value === modelValue }" @click="select(opt.value)">
-                    {{ opt.label }}
-                    <span v-if="opt.value === modelValue" class="check">✓</span>
+                <div class="search-box" @click.stop>
+                    <input ref="searchInputRef" type="text" v-model="searchQuery" placeholder="Search..."
+                        class="search-input" @keydown.esc="isOpen = false" />
+                    <span class="search-icon">🔍</span>
+                </div>
+
+                <div class="options-list">
+                    <div v-for="opt in filteredOptions" :key="opt.value" class="option-item"
+                        :class="{ 'selected': opt.value === modelValue }" @click="select(opt.value)">
+                        <span class="truncate">{{ opt.label }}</span>
+                        <span v-if="opt.value === modelValue" class="check">✓</span>
+                    </div>
+
+                    <div v-if="filteredOptions.length === 0" class="no-results">
+                        No matches found
+                    </div>
                 </div>
             </div>
         </transition>
@@ -70,16 +103,29 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     justify-content: space-between;
     align-items: center;
     user-select: none;
+    background: white;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.875rem;
+    position: relative;
+    z-index: 1;
+}
+
+.truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
 }
 
 .select-trigger.placeholder {
-    color: var(--color-text-muted);
+    color: #9ca3af;
 }
 
 .chevron {
     font-size: 0.7rem;
-    color: var(--color-text-muted);
+    color: #9ca3af;
     transition: transform 0.2s;
+    float: right;
 }
 
 .select-trigger.open .chevron {
@@ -91,54 +137,102 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     top: 100%;
     left: 0;
     right: 0;
-    margin-top: 0.5rem;
+    margin-top: 4px;
     background: white;
-    border: 1px solid var(--color-border);
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    z-index: 9999;
+    /* Massive z-index to stay above other rows */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+}
+
+.search-box {
+    padding: 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+    background: #f9fafb;
+    position: relative;
+}
+
+.search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem 0.5rem 2rem;
+    font-size: 0.875rem;
+    border: 1px solid #e5e7eb;
     border-radius: 0.5rem;
-    box-shadow: var(--shadow-lg);
-    z-index: 50;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.search-input:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+.search-icon {
+    position: absolute;
+    left: 1.25rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.8rem;
+    opacity: 0.4;
+}
+
+.options-list {
     max-height: 250px;
     overflow-y: auto;
     padding: 0.25rem;
 }
 
 .option-item {
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.875rem;
     cursor: pointer;
-    border-radius: 0.25rem;
-    color: var(--color-text-main);
+    border-radius: 0.5rem;
+    color: #374151;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.95rem;
+    font-size: 0.875rem;
+    transition: all 0.1s;
 }
 
 .option-item:hover {
-    background: var(--color-primary-light);
-    color: var(--color-primary-dark);
+    background: #f3f4f6;
+    color: #111827;
 }
 
 .option-item.selected {
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-    font-weight: 500;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-weight: 600;
+}
+
+.no-results {
+    padding: 1.5rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.875rem;
 }
 
 .check {
     font-size: 0.8rem;
+    margin-left: 0.5rem;
 }
 
 /* Scrollbar */
-.options-container::-webkit-scrollbar {
+.options-list::-webkit-scrollbar {
     width: 6px;
 }
 
-.options-container::-webkit-scrollbar-track {
+.options-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.options-container::-webkit-scrollbar-thumb {
-    background: var(--color-border);
+.options-list::-webkit-scrollbar-thumb {
+    background: #e5e7eb;
     border-radius: 3px;
 }
 

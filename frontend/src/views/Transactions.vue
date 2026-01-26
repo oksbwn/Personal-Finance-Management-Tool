@@ -43,7 +43,28 @@ const labelForm = ref({
 
 // Triage & Training Pagination/Selection
 const triagePagination = ref({ total: 0, limit: 10, skip: 0 })
+const triageSearchQuery = ref('')
+const triageSourceFilter = ref<'ALL' | 'SMS' | 'EMAIL'>('ALL')
 const trainingPagination = ref({ total: 0, limit: 10, skip: 0 })
+const filteredTriageTransactions = computed(() => {
+    let items = triageTransactions.value
+
+    if (triageSourceFilter.value !== 'ALL') {
+        items = items.filter(t => t.source === triageSourceFilter.value)
+    }
+
+    if (triageSearchQuery.value) {
+        const q = triageSearchQuery.value.toLowerCase()
+        items = items.filter(t =>
+            (t.description?.toLowerCase().includes(q)) ||
+            (t.recipient?.toLowerCase().includes(q)) ||
+            (t.external_id?.toLowerCase().includes(q))
+        )
+    }
+
+    return items
+})
+
 const selectedTriageIds = ref<string[]>([])
 const selectedTrainingIds = ref<string[]>([])
 const isProcessingBulk = ref(false)
@@ -109,11 +130,28 @@ const accountOptions = computed(() => {
 })
 
 const categoryOptions = computed(() => {
-    // Transform backend categories to select options
-    return categories.value.map(c => ({
-        label: `${c.icon || '🏷️'} ${c.name}`,
-        value: c.name
-    }))
+    // Collect all unique category names from various sources
+    const categoryNames = new Set(categories.value.map(c => c.name))
+
+    // Add current form category if exists (for edit modal)
+    if (form.value.category) categoryNames.add(form.value.category)
+
+    // Add all categories appearing in triage transactions (AI suggestions, etc.)
+    triageTransactions.value.forEach(t => {
+        if (t.category) categoryNames.add(t.category)
+    })
+
+    // Ensure Uncategorized is always an option
+    categoryNames.add('Uncategorized')
+
+    // Transform to select options with icons where possible
+    return Array.from(categoryNames).sort().map(name => {
+        const cat = categories.value.find(c => c.name === name)
+        return {
+            label: `${cat?.icon || '🏷️'} ${name}`,
+            value: name
+        }
+    })
 })
 
 const currentCategoryBudget = computed(() => {
@@ -186,6 +224,17 @@ async function fetchTriage(resetSkip = false) {
             triagePagination.value.skip = 0
             trainingPagination.value.skip = 0
         }
+
+        // Ensure we have accounts and categories for rendering triage items
+        if (accounts.value.length === 0 || categories.value.length === 0) {
+            const [accRes, catRes] = await Promise.all([
+                financeApi.getAccounts(),
+                financeApi.getCategories()
+            ])
+            accounts.value = accRes.data
+            categories.value = catRes.data
+        }
+
         const [res, trainingRes] = await Promise.all([
             financeApi.getTriage({ limit: triagePagination.value.limit, skip: triagePagination.value.skip }),
             financeApi.getTraining({ limit: trainingPagination.value.limit, skip: trainingPagination.value.skip })
@@ -193,6 +242,7 @@ async function fetchTriage(resetSkip = false) {
 
         triageTransactions.value = res.data.items.map((t: any) => ({
             ...t,
+            category: t.category || 'Uncategorized',
             is_transfer: !!t.is_transfer,
             create_rule: false
         }))
@@ -256,13 +306,31 @@ function toggleSelectAllTraining() {
 
 async function approveTriage(txn: any) {
     try {
-        await financeApi.approveTriage(txn.id, {
+        const res = await financeApi.approveTriage(txn.id, {
             category: txn.category,
             is_transfer: txn.is_transfer,
             to_account_id: txn.to_account_id,
-            create_rule: txn.create_rule
+            create_rule: false // Rule creation now handled by prompt
         })
         notify.success("Transaction approved")
+
+        // --- Smart Categorization Prompt Logic ---
+        if (!txn.is_transfer && txn.category && txn.category !== 'Uncategorized') {
+            const pattern = txn.recipient || txn.description
+            // Use the ACTUAL newly created transaction ID from the backend response
+            const newTxnId = res.data.transaction_id
+
+            smartPromptData.value = {
+                txnId: newTxnId,
+                category: txn.category,
+                pattern: pattern,
+                count: 0,
+                createRule: true,
+                applyToSimilar: false
+            }
+            showSmartPrompt.value = true
+        }
+
         fetchTriage()
         fetchData() // Refresh list in case they switch back
     } catch (e) {
@@ -639,7 +707,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                        }}</span>
+                            }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -760,7 +828,7 @@ onMounted(() => {
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                            }}</span>
+                                                }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
@@ -848,13 +916,30 @@ onMounted(() => {
                         </div>
                     </div>
 
+                    <div class="triage-filter-bar mb-4">
+                        <div class="triage-search-box">
+                            <span class="search-icon-mini">🔍</span>
+                            <input type="text" v-model="triageSearchQuery"
+                                placeholder="Search by merchant, ID or amount..." class="triage-search-input-premium">
+                        </div>
+
+                        <div class="source-toggle-group">
+                            <button class="source-chip" :class="{ active: triageSourceFilter === 'ALL' }"
+                                @click="triageSourceFilter = 'ALL'">All Sources</button>
+                            <button class="source-chip" :class="{ active: triageSourceFilter === 'SMS' }"
+                                @click="triageSourceFilter = 'SMS'">SMS</button>
+                            <button class="source-chip" :class="{ active: triageSourceFilter === 'EMAIL' }"
+                                @click="triageSourceFilter = 'EMAIL'">Email</button>
+                        </div>
+                    </div>
+
                     <div class="bulk-action-bar-triage mb-4 flex items-center justify-between">
                         <div class="flex items-center gap-4">
                             <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-muted">
                                 <input type="checkbox" @change="toggleSelectAllTriage"
-                                    :checked="selectedTriageIds.length === triageTransactions.length && triageTransactions.length > 0"
+                                    :checked="selectedTriageIds.length === filteredTriageTransactions.length && filteredTriageTransactions.length > 0"
                                     class="rounded border-gray-300 text-indigo-600" />
-                                Select All Current
+                                Select All Filtered
                             </label>
                             <button v-if="selectedTriageIds.length > 0" @click="handleBulkRejectTriage"
                                 class="bg-rose-50 text-rose-600 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
@@ -865,7 +950,7 @@ onMounted(() => {
                     </div>
 
                     <div class="triage-grid">
-                        <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card"
+                        <div v-for="txn in filteredTriageTransactions" :key="txn.id" class="glass-card triage-card"
                             :class="[txn.amount < 0 ? 'debit-theme' : 'credit-theme', { 'is-transfer-active': txn.is_transfer, 'selected': selectedTriageIds.includes(txn.id) }]">
                             <div class="triage-card-header">
                                 <div class="header-left">
@@ -943,14 +1028,6 @@ onMounted(() => {
                                             class="btn-triage-secondary">Discard</button>
 
                                         <div class="approval-cluster">
-                                            <label class="cache-checkbox"
-                                                title="Create rule for future automated handling">
-                                                <input type="checkbox" v-model="txn.create_rule">
-                                                <span class="checkbox-box">
-                                                    <span class="checkbox-icon">💾</span>
-                                                </span>
-                                                <span class="checkbox-text">Save Rule</span>
-                                            </label>
                                             <button @click="approveTriage(txn)" class="btn-triage-primary">
                                                 Confirm Entry
                                                 <span class="btn-shimmer"></span>
@@ -967,15 +1044,28 @@ onMounted(() => {
                             <p>No new transactions waiting for review.</p>
                         </div>
 
-                        <!-- Triage Pagination -->
-                        <div v-if="triagePagination.total > triagePagination.limit"
+                        <!-- Triage Pagination & Page Size -->
+                        <div v-if="triagePagination.total > 0"
                             class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
-                            <span class="text-[10px] text-muted font-mono">
-                                {{ triagePagination.skip + 1 }}–{{ Math.min(triagePagination.skip +
-                                    triagePagination.limit,
-                                    triagePagination.total) }} of {{ triagePagination.total }}
-                            </span>
-                            <div class="flex items-center gap-1">
+                            <div class="flex items-center gap-4">
+                                <span class="text-[10px] text-muted font-mono">
+                                    {{ triagePagination.skip + 1 }}–{{ Math.min(triagePagination.skip +
+                                        triagePagination.limit,
+                                        triagePagination.total) }} of {{ triagePagination.total }}
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] text-muted uppercase font-bold tracking-wider">Size:</span>
+                                    <select v-model="triagePagination.limit"
+                                        @change="triagePagination.skip = 0; fetchTriage()"
+                                        class="text-[10px] bg-white border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold text-slate-700">
+                                        <option :value="10">10</option>
+                                        <option :value="20">20</option>
+                                        <option :value="50">50</option>
+                                        <option :value="100">100</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1" v-if="triagePagination.total > triagePagination.limit">
                                 <button @click="triagePagination.skip -= triagePagination.limit; fetchTriage()"
                                     :disabled="triagePagination.skip === 0" class="btn-pagination-compact">Prev</button>
                                 <button @click="triagePagination.skip += triagePagination.limit; fetchTriage()"
@@ -1021,7 +1111,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                            }}</span>
+                                        }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
@@ -1062,14 +1152,32 @@ onMounted(() => {
                             <p>No unparsed messages waiting for training.</p>
                         </div>
 
-                        <!-- Training Pagination -->
-                        <div v-if="trainingPagination.total > trainingPagination.limit"
+                        <!-- Training Area Pagination & Page Size -->
+                        <div v-if="trainingPagination.total > 0"
                             class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
-                            <span class="text-[10px] text-muted font-mono">
-                                {{ trainingPagination.skip + 1 }}–{{ Math.min(trainingPagination.skip +
-                                    trainingPagination.limit, trainingPagination.total) }} of {{ trainingPagination.total }}
-                            </span>
-                            <div class="flex items-center gap-1">
+                            <div class="flex items-center gap-4">
+                                <span class="text-[10px] text-muted font-mono">
+                                    {{ trainingPagination.skip + 1 }}–{{ Math.min(trainingPagination.skip +
+                                        trainingPagination.limit, trainingPagination.total) }} of {{
+                                        trainingPagination.total }}
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] text-muted uppercase font-bold tracking-wider">Page
+                                        Size:</span>
+                                    <select v-model="trainingPagination.limit"
+                                        @change="trainingPagination.skip = 0; fetchTriage()"
+                                        class="text-[10px] bg-white border border-amber-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-500 font-bold text-amber-800">
+                                        <option :value="10">10</option>
+                                        <option :value="20">20</option>
+                                        <option :value="50">50</option>
+                                        <option :value="100">100</option>
+                                        <option :value="200">200</option>
+                                        <option :value="500">500</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1"
+                                v-if="trainingPagination.total > trainingPagination.limit">
                                 <button @click="trainingPagination.skip -= trainingPagination.limit; fetchTriage()"
                                     :disabled="trainingPagination.skip === 0"
                                     class="btn-pagination-compact amber">Prev</button>
@@ -2678,6 +2786,14 @@ onMounted(() => {
     border: 1px solid rgba(0, 0, 0, 0.05);
     background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(12px);
+    z-index: 1;
+    /* Establish base level */
+}
+
+.triage-card:hover,
+.triage-card:focus-within {
+    z-index: 50;
+    /* Rise above neighbors when interactive */
 }
 
 .triage-card:hover {
@@ -3339,5 +3455,79 @@ input:checked+.slider:before {
 .triage-card.selected {
     border: 1px solid var(--brand-primary, #6366f1);
     background: rgba(99, 102, 241, 0.05);
+}
+
+.triage-filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    background: white;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.triage-search-box {
+    position: relative;
+    flex: 1;
+    max-width: 400px;
+}
+
+.search-icon-mini {
+    position: absolute;
+    left: 0.875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.4;
+    font-size: 0.875rem;
+}
+
+.triage-search-input-premium {
+    width: 100%;
+    padding: 0.625rem 0.625rem 0.625rem 2.25rem;
+    border: 1px solid #f3f4f6;
+    background: #f9fafb;
+    border-radius: 0.75rem;
+    font-size: 0.8125rem;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.triage-search-input-premium:focus {
+    background: white;
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+.source-toggle-group {
+    display: flex;
+    gap: 0.25rem;
+    background: #f3f4f6;
+    padding: 0.25rem;
+    border-radius: 0.625rem;
+}
+
+.source-chip {
+    padding: 0.375rem 0.875rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.source-chip:hover:not(.active) {
+    color: #111827;
+}
+
+.source-chip.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 </style>
