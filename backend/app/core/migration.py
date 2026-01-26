@@ -107,7 +107,10 @@ def run_auto_migrations(engine: Engine):
             );
             """))
 
-            # 6. Add email_sync_logs table
+            # 6. Category Type Migration
+            safe_add_column("categories", "type", "VARCHAR DEFAULT 'expense'")
+            
+            # 7. Add email_sync_logs table
             connection.execute(text("""
             CREATE TABLE IF NOT EXISTS email_sync_logs (
                 id VARCHAR PRIMARY KEY,

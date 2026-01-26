@@ -146,6 +146,7 @@ class IgnoredSuggestionCreate(BaseModel):
 
 class CategoryBase(BaseModel):
     name: str
+    type: str = "expense"
     icon: Optional[str] = "🏷️"
     color: Optional[str] = "#3B82F6"
 
@@ -154,6 +155,7 @@ class CategoryCreate(CategoryBase):
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
+    type: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
 

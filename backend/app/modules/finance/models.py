@@ -115,6 +115,7 @@ class Category(Base):
     name = Column(String, nullable=False)
     icon = Column(String, nullable=True) # Emoji or icon code
     color = Column(String, default="#3B82F6") # Hex color code
+    type = Column(String, default="expense") # expense/income
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Budget(Base):

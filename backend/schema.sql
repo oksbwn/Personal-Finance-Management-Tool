@@ -49,6 +49,7 @@ CREATE TABLE categories (
 	name VARCHAR NOT NULL, 
 	icon VARCHAR, 
 	color VARCHAR DEFAULT '#3B82F6',
+	type VARCHAR DEFAULT 'expense',
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
