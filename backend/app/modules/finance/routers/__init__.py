@@ -6,6 +6,7 @@ from .budgets import router as budgets_router
 from .recurring import router as recurring_router
 from .analytics import router as analytics_router
 from .mutual_funds import router as mutual_funds_router
+from .loans import router as loans_router
 
 router = APIRouter()
 
@@ -16,3 +17,4 @@ router.include_router(budgets_router, tags=["Budgets"])
 router.include_router(recurring_router, tags=["Recurring"])
 router.include_router(analytics_router, tags=["Analytics"])
 router.include_router(mutual_funds_router, tags=["Mutual Funds"])
+router.include_router(loans_router, tags=["Loans"])
