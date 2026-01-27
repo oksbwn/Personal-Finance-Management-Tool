@@ -36,6 +36,8 @@ class Account(Base):
                                foreign_keys="Transaction.account_id",
                                viewonly=True,
                                sync_backref=False)
+                               
+    loan_details = relationship("Loan", uselist=False, back_populates="account")
 
 
 
@@ -65,6 +67,8 @@ class Transaction(Base):
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
     exclude_from_reports = Column(Boolean, default=False, nullable=False)
+    is_emi = Column(Boolean, default=False, nullable=False)
+    loan_id = Column(String, ForeignKey("loans.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     linked_transaction = relationship("Transaction", 
@@ -86,6 +90,8 @@ class Transaction(Base):
                           foreign_keys="Transaction.account_id",
                           viewonly=True,
                           sync_backref=False)
+    
+    loan = relationship("Loan", backref="emi_transactions")
 
 
 class CategoryRule(Base):
@@ -138,6 +144,14 @@ class Frequency(str, enum.Enum):
     MONTHLY = "MONTHLY"
     YEARLY = "YEARLY"
 
+class LoanType(str, enum.Enum):
+    HOME_LOAN = "HOME_LOAN"
+    PERSONAL_LOAN = "PERSONAL_LOAN"
+    CAR_LOAN = "CAR_LOAN"
+    EDUCATION_LOAN = "EDUCATION_LOAN"
+    CREDIT_CARD = "CREDIT_CARD"
+    OTHER = "OTHER"
+
 class RecurringTransaction(Base):
     __tablename__ = "recurring_transactions"
 
@@ -157,6 +171,28 @@ class RecurringTransaction(Base):
     exclude_from_reports = Column(Boolean, default=False, nullable=False)
     last_run_date = Column(DateTime, nullable=True) # To track when it last ran
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Loan(Base):
+    __tablename__ = "loans"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    account_id = Column(String, ForeignKey("accounts.id"), nullable=False, unique=True, index=True) # One-to-one with Loan Account
+    
+    principal_amount = Column(Numeric(15, 2), nullable=False)
+    interest_rate = Column(Numeric(5, 2), nullable=False) # Annual Interest Rate %
+    start_date = Column(DateTime, nullable=False)
+    tenure_months = Column(Numeric(5,0), nullable=False)
+    
+    emi_amount = Column(Numeric(15, 2), nullable=False)
+    emi_date = Column(Numeric(2, 0), nullable=False) # Day of month (1-31)
+    
+    bank_account_id = Column(String, nullable=True) # Source account for EMI deduction
+    loan_type = Column(SqlEnum(LoanType), default=LoanType.OTHER, nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    account = relationship("Account", back_populates="loan_details")
 
 class MutualFundsMeta(Base):
     __tablename__ = "mutual_funds_meta"

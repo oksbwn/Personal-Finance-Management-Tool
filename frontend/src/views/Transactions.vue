@@ -21,6 +21,7 @@ const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
 const triageTransactions = ref<any[]>([])
 const budgets = ref<any[]>([])
+const loans = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
 const activeTab = ref<'list' | 'analytics' | 'triage'>('list')
@@ -133,13 +134,19 @@ const defaultForm = {
     is_transfer: false,
     to_account_id: '',
     linked_transaction_id: '',
-    exclude_from_reports: false
+    exclude_from_reports: false,
+    is_emi: false,
+    loan_id: ''
 }
 const form = ref({ ...defaultForm })
 
 // Computed for Select Options
 const accountOptions = computed(() => {
     return accounts.value.map(a => ({ label: a.name, value: a.id }))
+})
+
+const loanOptions = computed(() => {
+    return loans.value.map(l => ({ label: l.name, value: l.id }))
 })
 
 const categoryOptions = computed(() => {
@@ -177,16 +184,16 @@ async function fetchData() {
     loading.value = true
     try {
         if (accounts.value.length === 0) {
-            console.log('[Transactions] Fetching accounts and categories...')
-            const [accRes, catRes, budgetRes] = await Promise.all([
+            const [accRes, catRes, budgetRes, loanRes] = await Promise.all([
                 financeApi.getAccounts(),
                 financeApi.getCategories(),
-                financeApi.getBudgets()
+                financeApi.getBudgets(),
+                financeApi.getLoans()
             ])
             accounts.value = accRes.data
             categories.value = catRes.data
             budgets.value = budgetRes.data
-            console.log('[Transactions] Loaded', accounts.value.length, 'accounts,', categories.value.length, 'categories, and', budgets.value.length, 'budgets')
+            loans.value = loanRes.data
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
@@ -643,6 +650,8 @@ function openAddModal() {
         is_transfer: false,
         to_account_id: '',
         linked_transaction_id: '',
+        is_emi: false,
+        loan_id: '',
     }
     potentialMatches.value = []
     matchesSearched.value = false
@@ -674,7 +683,9 @@ function openEditModal(txn: any) {
         is_transfer: txn.is_transfer || false,
         to_account_id: txn.transfer_account_id || '',
         linked_transaction_id: txn.linked_transaction_id || '',
-        exclude_from_reports: txn.exclude_from_reports || false
+        exclude_from_reports: txn.exclude_from_reports || false,
+        is_emi: txn.is_emi || false,
+        loan_id: txn.loan_id || ''
     }
     potentialMatches.value = []
     matchesSearched.value = false
@@ -692,7 +703,9 @@ async function handleSubmit() {
             is_transfer: form.value.is_transfer,
             to_account_id: form.value.to_account_id,
             linked_transaction_id: form.value.linked_transaction_id,
-            exclude_from_reports: form.value.exclude_from_reports
+            exclude_from_reports: form.value.exclude_from_reports,
+            is_emi: form.value.is_emi,
+            loan_id: form.value.loan_id
         }
 
         if (isEditing.value && editingTxnId.value) {
@@ -1009,6 +1022,9 @@ onMounted(() => {
                                         <span v-if="txn.exclude_from_reports" class="ai-badge-mini"
                                             style="background: #fee2e2; color: #991b1b; border-color: #fca5a5;"
                                             title="Excluded from reports and analytics">🚫 Excluded</span>
+                                        <span v-if="txn.is_emi" class="ai-badge-mini"
+                                            style="background: #e0f2fe; color: #0369a1; border-color: #7dd3fc;"
+                                            title="Linked to EMI Loan">🏦 EMI Payment</span>
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
@@ -1458,6 +1474,25 @@ onMounted(() => {
                                             style="color: #991b1b; min-width: 40px; text-align: right;">{{
                                                 form.exclude_from_reports ? 'Yes' : 'No' }}</span>
                                     </div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8125rem; font-weight: 600; color: #0369a1;">Is EMI
+                                        Payment?</span>
+                                    <div class="toggle-control" style="min-width: unset;">
+                                        <label class="premium-switch">
+                                            <input type="checkbox" v-model="form.is_emi">
+                                            <span class="premium-slider"
+                                                style="background-color: #e0f2fe; border: 1px solid #bae6fd;"></span>
+                                        </label>
+                                        <span class="toggle-text"
+                                            style="color: #0369a1; min-width: 40px; text-align: right;">{{ form.is_emi ?
+                                                'Yes' : 'No' }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="form.is_emi" class="mt-2">
+                                    <label class="text-xs font-bold text-gray-500 uppercase">Select Loan</label>
+                                    <CustomSelect v-model="form.loan_id" :options="loanOptions"
+                                        placeholder="Link to Loan" />
                                 </div>
                             </div>
 

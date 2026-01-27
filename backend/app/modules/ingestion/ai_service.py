@@ -127,6 +127,60 @@ class GeminiProvider:
             pass
         return None
 
+    def generate_loan_advice(self, config: ingestion_models.AIConfiguration, loan_details: str) -> Optional[str]:
+        if not config.api_key:
+            return None
+        
+        client = genai.Client(api_key=config.api_key)
+        model_id = config.model_name or "gemini-1.5-flash"
+        
+        prompt = (
+            "You are a sophisticated financial planner. Analyze the following loan details provided by the user. "
+            "Provide a comprehensive assessment including:\n"
+            "1. Interest Rate Analysis: Is it high/low compared to current market standards (assume India region)?\n"
+            "2. Prepayment Strategy: Suggest if/how they should prepay to save interest.\n"
+            "3. Repayment Burden: Comment on the EMI burden if any salary info is implied (or give generic advice).\n"
+            "4. Actionable Tips: Specific steps to close this loan faster.\n"
+            "Format the output as clean Markdown with headers."
+            f"\n\nLOAN DETAILS:\n{loan_details}"
+        )
+        
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt
+            )
+            return response.text if response else None
+        except Exception:
+            return None
+
+    def generate_loans_overview_advice(self, config: ingestion_models.AIConfiguration, loans_data: str) -> Optional[str]:
+        if not config.api_key:
+            return None
+        
+        client = genai.Client(api_key=config.api_key)
+        model_id = config.model_name or "gemini-1.5-flash"
+        
+        prompt = (
+            "You are a sophisticated financial planner. Analyze the following list of active loans for a household. "
+            "Provide a high-level summary and strategic advice including:\n"
+            "1. Portfolio Risk: Identify if they are over-leveraged or have high-interest debt mix.\n"
+            "2. Consolidation Opportunities: Should they consider consolidating multiple loans?\n"
+            "3. Debt Snowball/Avalanche: Which loan should they prioritize paying off first and why?\n"
+            "4. Monthly Cashflow Impact: Overall impact of EMIs on their financial flexibility.\n"
+            "Format the output as clean Markdown with bullet points and headers."
+            f"\n\nLOANS DATA:\n{loans_data}"
+        )
+        
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt
+            )
+            return response.text if response else None
+        except Exception:
+            return None
+
 class AIService:
     _providers = {
         "gemini": GeminiProvider()
@@ -296,3 +350,45 @@ class AIService:
         summary_str = json.dumps(summary_data, indent=2)
         
         return provider.generate_structured_insights(config, summary_str)
+
+    @classmethod
+    def generate_loan_insights(cls, db: Session, tenant_id: str, loan_data: Dict[str, Any]) -> Optional[str]:
+        # 1. Get Config
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id,
+            ingestion_models.AIConfiguration.is_enabled == True
+        ).first()
+
+        if not config:
+            return "AI Insights are currently disabled in settings."
+
+        # 2. Call Provider
+        provider = cls._providers.get(config.provider.lower())
+        if not provider or not hasattr(provider, 'generate_loan_advice'):
+            return "AI Provider not configured correctly."
+
+        # Convert summary to string for the prompt
+        details_str = json.dumps(loan_data, indent=2)
+        
+        return provider.generate_loan_advice(config, details_str)
+
+    @classmethod
+    def generate_loans_overview_insights(cls, db: Session, tenant_id: str, loans_data: List[Dict[str, Any]]) -> Optional[str]:
+        # 1. Get Config
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id,
+            ingestion_models.AIConfiguration.is_enabled == True
+        ).first()
+
+        if not config:
+            return "AI Insights are currently disabled in settings."
+
+        # 2. Call Provider
+        provider = cls._providers.get(config.provider.lower())
+        if not provider or not hasattr(provider, 'generate_loans_overview_advice'):
+            return "AI Provider not configured correctly."
+
+        # Convert summary to string for the prompt
+        data_str = json.dumps(loans_data, indent=2)
+        
+        return provider.generate_loans_overview_advice(config, data_str)

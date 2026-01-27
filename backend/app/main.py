@@ -51,10 +51,11 @@ def create_application() -> FastAPI:
     # DB Creation (Dev only - migrations removed, use fresh schema.sql for setup)
     # Checks for existing tables.
     
+    # Create tables first
+    Base.metadata.create_all(bind=engine)
+
     # Run Auto-Migrations (DuckDB Schema Evolution)
     run_auto_migrations(engine)
-
-    Base.metadata.create_all(bind=engine)
 
     # --- Background Tasks ---
     

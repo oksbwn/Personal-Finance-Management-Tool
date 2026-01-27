@@ -64,14 +64,21 @@ class TransactionService:
             linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
             source=transaction.source if hasattr(transaction, 'source') else "MANUAL",
             content_hash=getattr(transaction, 'content_hash', None),
-            exclude_from_reports=final_exclude
+            exclude_from_reports=final_exclude,
+            is_emi=getattr(transaction, 'is_emi', False),
+            loan_id=getattr(transaction, 'loan_id', None)
         )
         
         # Update Account Balance
         db_account = db.query(models.Account).filter(models.Account.id == str(transaction.account_id)).first()
         if db_account:
             current_bal = db_account.balance or 0
-            db_account.balance = current_bal + transaction.amount
+            # If it's a liability (Loan/Credit Card), adding money (Credit) reduces the balance owed
+            # Spending money (Debit/Negative) increases the balance owed
+            if db_account.type in [models.AccountType.LOAN, models.AccountType.CREDIT_CARD]:
+                db_account.balance = current_bal - transaction.amount
+            else:
+                db_account.balance = current_bal + transaction.amount
             db.add(db_account)
 
         db.add(db_transaction)

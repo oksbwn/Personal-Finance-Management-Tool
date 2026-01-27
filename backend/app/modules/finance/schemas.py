@@ -61,6 +61,8 @@ class TransactionBase(BaseModel):
     longitude: Optional[Decimal] = None
     location_name: Optional[str] = None
     exclude_from_reports: bool = False
+    is_emi: bool = False
+    loan_id: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
     account_id: UUID
@@ -80,11 +82,13 @@ class TransactionUpdate(BaseModel):
     to_account_id: Optional[str] = None
     linked_transaction_id: Optional[str] = None
     exclude_from_reports: Optional[bool] = None
+    is_emi: Optional[bool] = None
+    loan_id: Optional[str] = None
 
 class Transaction(TransactionBase):
-    id: UUID
-    tenant_id: UUID
-    account_id: UUID
+    id: Union[UUID, str]
+    tenant_id: Union[UUID, str]
+    account_id: Union[UUID, str]
     type: TransactionType
     created_at: datetime
 
@@ -92,15 +96,17 @@ class Transaction(TransactionBase):
         from_attributes = True
 
 class TransactionRead(TransactionBase):
-    id: UUID
-    account_id: UUID
-    tenant_id: UUID
+    id: Union[UUID, str]
+    account_id: Union[UUID, str]
+    tenant_id: Union[UUID, str]
     type: Optional[str] = "DEBIT"
     source: Optional[str] = "MANUAL"
     external_id: Optional[str] = None
     content_hash: Optional[str] = None
     transfer_account_id: Optional[UUID] = None
     exclude_from_reports: bool = False
+    is_emi: bool = False
+    loan_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -187,8 +193,8 @@ class BudgetUpdate(BaseModel):
     amount_limit: Optional[Decimal] = None
 
 class BudgetRead(BudgetBase):
-    id: UUID
-    tenant_id: UUID
+    id: Union[UUID, str]
+    tenant_id: Union[UUID, str]
     updated_at: datetime
     
     class Config:
@@ -235,7 +241,7 @@ class Frequency(str):
 class RecurringTransactionBase(BaseModel):
     name: str
     amount: Decimal
-    account_id: UUID
+    account_id: Union[UUID, str]
     category: Optional[str] = None
     frequency: str = "MONTHLY" 
     start_date: datetime
@@ -249,7 +255,7 @@ class RecurringTransactionCreate(RecurringTransactionBase):
 class RecurringTransactionUpdate(BaseModel):
     name: Optional[str] = None
     amount: Optional[Decimal] = None
-    account_id: Optional[UUID] = None
+    account_id: Optional[Union[UUID, str]] = None
     category: Optional[str] = None
     frequency: Optional[str] = None
     start_date: Optional[datetime] = None
@@ -258,10 +264,62 @@ class RecurringTransactionUpdate(BaseModel):
     exclude_from_reports: Optional[bool] = None
 
 class RecurringTransactionRead(RecurringTransactionBase):
-    id: UUID
-    tenant_id: UUID
+    id: Union[UUID, str]
+    tenant_id: Union[UUID, str]
     last_run_date: Optional[datetime] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+        
+# --- Loan Schemas ---
+
+class LoanBase(BaseModel):
+    name: str # Mapped to Account.name
+    principal_amount: Decimal
+    interest_rate: Decimal
+    start_date: datetime
+    tenure_months: int
+    emi_amount: Decimal
+    emi_date: int
+    loan_type: str = "OTHER"
+    bank_account_id: Optional[Union[UUID, str]] = None
+
+class LoanCreate(LoanBase):
+    pass
+
+class LoanRead(LoanBase):
+    id: Union[UUID, str]
+    tenant_id: Union[UUID, str]
+    account_id: Union[UUID, str]
+    
+    # Computed fields
+    outstanding_balance: Decimal = Decimal('0.0')
+    paid_principal: Decimal = Decimal('0.0')
+    progress_percentage: float = 0.0
+    next_emi_date: Optional[datetime] = None
+    
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class AmortizationScheduleItem(BaseModel):
+    installment_no: int
+    due_date: datetime
+    opening_balance: Decimal
+    emi: Decimal
+    principal_component: Decimal
+    interest_component: Decimal
+    closing_balance: Decimal
+    status: str = "PENDING" # PAID, PENDING, OVERDUE
+
+class LoanDetail(LoanRead):
+    amortization_schedule: List[AmortizationScheduleItem]
+
+class LoanRepayment(BaseModel):
+    bank_account_id: Union[UUID, str]
+    amount: Decimal
+    date: datetime
+    installment_no: Optional[int] = None
+    description: Optional[str] = None
