@@ -5,6 +5,8 @@ __pycache__/
 *.db
 node_modules/
 .env
+.env.local
+.env.*.local
 .venv/
 dist/
 .DS_Store
@@ -12,3 +14,6 @@ dist/
 # Data persistence
 data/*
 !data/.gitkeep
+# Deployment
+.deploy_staging/
+*.tar.gz

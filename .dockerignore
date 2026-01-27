@@ -23,3 +23,40 @@ venv/
 Dockerfile
 docker-compose*.yml
 build_and_push.sh
+
+# Deployment files
+deploy_to_pi.sh
+setup_demo.sh
+deployment/
+.koyeb.yml
+koyeb.json
+railway.json
+render.yaml
+fly.toml
+
+# Documentation
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+docs/
+
+# IDE and Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Mobile
+mobile_app/
+
+# Environment
+.env
+.env.local
+.env.*.local
