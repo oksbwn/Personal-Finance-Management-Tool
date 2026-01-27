@@ -75,3 +75,24 @@ app = create_application()
 @app.get("/")
 def root():
     return {"message": "Welcome to WealthFam API"}
+
+@app.get("/health")
+def health():
+    """Health check endpoint for cloud platforms"""
+    try:
+        # Check database connectivity
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        return {
+            "status": "healthy",
+            "service": "WealthFam",
+            "database": "connected"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "service": "WealthFam",
+            "database": "disconnected",
+            "error": str(e)
+        }
