@@ -1,9 +1,24 @@
-# WealthFam
 
-> [!IMPORTANT]
-> **WealthFam** is a premium, AI-driven personal and family finance management platform designed for the modern household.
+<div align="center">
 
 ![WealthFam Branding](/frontend/public/wordmark.png)
+
+
+[![Docker Hub](https://img.shields.io/docker/v/wglabz/wealthfam?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/wglabz/wealthfam)
+[![Docker Pulls](https://img.shields.io/docker/pulls/wglabz/wealthfam?logo=docker&color=2496ED)](https://hub.docker.com/r/wglabz/wealthfam)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](version.json)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+[![Download Mobile APK](https://img.shields.io/badge/Download-Mobile%20APK-success?logo=android&logoColor=white)](mobile_app/build/app/outputs/flutter-apk/app-release.apk)
+[![Deploy to Koyeb](https://img.shields.io/badge/Deploy-Koyeb-121212?logo=koyeb)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy to Railway](https://img.shields.io/badge/Deploy-Railway-0B0D0E?logo=railway)](https://railway.app/template/wealthfam)
+
+[![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Flutter](https://img.shields.io/badge/Flutter-Mobile-02569B?logo=flutter&logoColor=white)](https://flutter.dev/)
+[![DuckDB](https://img.shields.io/badge/DuckDB-Serverless-FFF000?logo=duckdb&logoColor=black)](https://duckdb.org/)
+
+</div>
 
 ## 🚀 Overview
 
@@ -51,11 +66,6 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 - **Features**: Real-time SMS ingestion, offline retry queue, and manual SMS sync management.
 - **Biometrics**: Integration ready for secure access.
 
-#### 📲 Download & Install
-[![Download WealthFam Mobile](/docs/assets/mobile_banner.png)](/mobile_app/build/app/outputs/flutter-apk/app-release.apk)
-
-*Click the banner above to download the latest **WealthFam Mobile APK** directly from this repository.*
-
 
 ### Backend
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
@@ -63,6 +73,23 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 - **ORM**: [SQLAlchemy](https://www.sqlalchemy.org/)
 - **Validation**: [Pydantic v2](https://docs.pydantic.dev/)
 - **AI Engine**: Gemini Pro for advanced transaction parsing.
+
+## ☁️ Cloud Deployment (One-Click)
+
+Deploy WealthFam to your preferred cloud platform with just one click:
+
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/wealthfam)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-username/wealthfam)
+
+### 🌐 Live Demo
+Try WealthFam without installing: **[https://demo.wealthfam.app](https://demo.wealthfam.app)**
+
+*Demo credentials: `demo@wealthfam.app` / `demo123`*
+
+> 📖 **Deployment**: See [`/deployment`](deployment/README.md) for all configuration files and platform-specific guides
+> 
+> 📚 **Documentation**: Complete guides in [`/docs`](docs/) - [Deployment Guide](docs/DEPLOYMENT.md) | [Quick Deploy](docs/QUICK_DEPLOY.md) | [Checklist](docs/DEPLOYMENT_CHECKLIST.md)
 
 ## 🐳 Quick Start with Docker
 The easiest way to run WealthFam is using our pre-built Docker image. You don't need to build anything yourself!
