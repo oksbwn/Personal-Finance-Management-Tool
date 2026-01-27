@@ -2,14 +2,11 @@ services:
   - type: web
     name: wealthfam
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        value: duckdb:////data/family_finance_v3.duckdb
+        value: duckdb:///family_finance_v3.duckdb
       - key: VITE_APP_BUILD
-        value: render-latest
-    disk:
-      name: wealthfam-data
-      mountPath: /data
-      sizeGB: 1
+        value: render-free
+
