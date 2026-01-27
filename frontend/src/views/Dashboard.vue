@@ -70,6 +70,8 @@ const metrics = ref({
         overall_credit_utilization: 0
     },
     monthly_spending: 0,
+    total_excluded: 0,
+    excluded_income: 0,
     top_spending_category: null as { name: string, amount: number } | null,
     budget_health: {
         limit: 0,
@@ -328,10 +330,27 @@ watch(selectedMember, () => {
                         <span class="label">Monthly Spending</span>
                         <span class="value">{{ formatAmount(metrics.monthly_spending, metrics.currency) }}</span>
 
-                        <div v-if="metrics.top_spending_category" class="sub-text"
-                            style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 4px;">
-                            Top: <span style="font-weight: 600; color: var(--color-text-main);">{{
-                                metrics.top_spending_category.name }}</span>
+                        <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 4px;">
+                            <div v-if="metrics.top_spending_category" class="sub-text"
+                                style="font-size: 0.7rem; color: var(--color-text-muted);">
+                                Top: <span style="font-weight: 600; color: var(--color-text-main);">{{
+                                    metrics.top_spending_category.name }}</span>
+                            </div>
+                            <div v-if="metrics.total_excluded > 0 || metrics.excluded_income > 0" class="sub-text"
+                                style="font-size: 0.65rem; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
+                                <div v-if="metrics.total_excluded > 0"
+                                    style="display: flex; align-items: center; gap: 4px;">
+                                    <span style="font-size: 0.8rem;">🚫</span>
+                                    <span>{{ formatAmount(metrics.total_excluded, metrics.currency) }} excluded
+                                        exp</span>
+                                </div>
+                                <div v-if="metrics.excluded_income > 0"
+                                    style="display: flex; align-items: center; gap: 4px; color: #10b981;">
+                                    <span style="font-size: 0.8rem;">➕</span>
+                                    <span>{{ formatAmount(metrics.excluded_income, metrics.currency) }} excluded
+                                        inc</span>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Sparkline -->

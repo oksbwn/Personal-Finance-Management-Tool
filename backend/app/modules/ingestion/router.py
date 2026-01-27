@@ -521,6 +521,7 @@ class PendingTransactionRead(BaseModel):
     credit_limit: Optional[float] = None
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    exclude_from_reports: bool = False
     created_at: datetime
 
     class Config:
@@ -545,6 +546,7 @@ class TriageApproveRequest(BaseModel):
     category: Optional[str] = None
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    exclude_from_reports: Optional[bool] = None
     create_rule: bool = False
 
 @router.post("/triage/{pending_id}/approve")
@@ -561,6 +563,7 @@ def approve_triage(
         category_override=payload.category,
         is_transfer_override=payload.is_transfer,
         to_account_id_override=payload.to_account_id,
+        exclude_from_reports_override=payload.exclude_from_reports,
         create_rule=payload.create_rule
     )
     if not txn:

@@ -27,6 +27,8 @@ class TransactionService:
         
         # --- Auto-Categorization Logic ---
         final_category = transaction.category
+        final_exclude = transaction.exclude_from_reports or transaction.is_transfer
+        
         if (not final_category or final_category == "Uncategorized") and (transaction.description or transaction.recipient):
             rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).order_by(models.CategoryRule.priority.desc()).all()
             
@@ -38,6 +40,8 @@ class TransactionService:
                     keywords = json.loads(rule.keywords)
                     if any(k.lower() in desc_lower or k.lower() in recipient_lower for k in keywords):
                         final_category = rule.category
+                        if rule.exclude_from_reports:
+                            final_exclude = True
                         break
                 except Exception as e:
                     pass
@@ -59,7 +63,8 @@ class TransactionService:
             is_transfer=transaction.is_transfer,
             linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
             source=transaction.source if hasattr(transaction, 'source') else "MANUAL",
-            content_hash=getattr(transaction, 'content_hash', None)
+            content_hash=getattr(transaction, 'content_hash', None),
+            exclude_from_reports=final_exclude
         )
         
         # Update Account Balance
@@ -189,6 +194,7 @@ class TransactionService:
         
         if is_transfer_update is True:
             db_txn.is_transfer = True
+            db_txn.exclude_from_reports = True
             if not to_account_id and not db_txn.linked_transaction_id:
                  pass 
 
@@ -209,7 +215,8 @@ class TransactionService:
                     type=TransactionType.CREDIT if (db_txn.amount < 0) else TransactionType.DEBIT,
                     is_transfer=True,
                     source=db_txn.source,
-                    linked_transaction_id=db_txn.id
+                    linked_transaction_id=db_txn.id,
+                    exclude_from_reports=True
                 )
                 db.add(target_txn)
                 db_txn.linked_transaction_id = target_txn.id
@@ -271,6 +278,7 @@ class TransactionService:
         category_override: Optional[str] = None,
         is_transfer_override: bool = False,
         to_account_id_override: Optional[str] = None,
+        exclude_from_reports_override: Optional[bool] = None,
         create_rule: bool = False
     ):
         pending = db.query(ingestion_models.PendingTransaction).filter(
@@ -282,6 +290,11 @@ class TransactionService:
         final_is_transfer = is_transfer_override or pending.is_transfer
         final_to_account_id = to_account_id_override or pending.to_account_id
         final_category = category_override or pending.category or "Uncategorized"
+        final_exclude = exclude_from_reports_override if exclude_from_reports_override is not None else pending.exclude_from_reports
+        
+        # Sync exclude if it was forced to transfer here
+        if is_transfer_override:
+            final_exclude = True
         
         if create_rule and pending.description:
             rule_create = schemas.CategoryRuleCreate(
@@ -305,12 +318,14 @@ class TransactionService:
             source=pending.source,
             is_transfer=final_is_transfer,
             to_account_id=final_to_account_id,
-            tags=[]
+            tags=[],
+            exclude_from_reports=final_exclude
         )
         
         if txn_create.is_transfer and txn_create.to_account_id:
             pending.is_transfer = final_is_transfer
             pending.to_account_id = final_to_account_id
+            pending.exclude_from_reports = final_exclude
             real_txn = TransferService.approve_transfer(db, pending, tenant_id)
         else:
             real_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
@@ -393,7 +408,8 @@ class TransactionService:
         category: str, 
         tenant_id: str,
         create_rule: bool = False,
-        apply_to_similar: bool = False
+        apply_to_similar: bool = False,
+        exclude_from_reports: bool = False
     ) -> dict:
         db_txn = db.query(models.Transaction).filter(
             models.Transaction.id == txn_id,
@@ -405,6 +421,8 @@ class TransactionService:
             
         old_category = db_txn.category
         db_txn.category = category
+        if exclude_from_reports:
+            db_txn.exclude_from_reports = True
         db.add(db_txn)
         
         affected_count = 1
@@ -427,7 +445,8 @@ class TransactionService:
                     name=f"Auto: {pattern}",
                     category=category,
                     keywords=json.dumps([pattern]),
-                    priority=1
+                    priority=1,
+                    exclude_from_reports=exclude_from_reports
                 )
                 db.add(new_rule)
                 rule_created = True
@@ -447,6 +466,8 @@ class TransactionService:
             similar_txns = query.all()
             for st in similar_txns:
                 st.category = category
+                if exclude_from_reports:
+                    st.exclude_from_reports = True
                 db.add(st)
                 affected_count += 1
 

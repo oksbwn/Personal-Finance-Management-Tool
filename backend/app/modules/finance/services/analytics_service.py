@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 from backend.app.modules.finance import models
 from backend.app.modules.finance.services.transaction_service import TransactionService
 
@@ -12,7 +12,6 @@ class AnalyticsService:
         # 1. Accounts & Net Worth (Accounts are filtered by owner_id if user_id is provided)
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
         if user_id:
-            from sqlalchemy import or_
             # Show accounts owned by this user OR shared accounts (owner_id is null)
             accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
         
@@ -78,14 +77,14 @@ class AnalyticsService:
         # 2. Monthly Spending (or Filtered Spending)
         # Default to current month if no dates provided
         if not start_date and not end_date:
-            from datetime import datetime
             today = datetime.utcnow()
             start_date = datetime(today.year, today.month, 1)
             
         monthly_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         )
         if start_date:
             monthly_spending_query = monthly_spending_query.filter(models.Transaction.date >= start_date)
@@ -95,7 +94,6 @@ class AnalyticsService:
             monthly_spending_query = monthly_spending_query.filter(models.Transaction.account_id == account_id)
         if user_id:
             # Filter by account ownership: show user's accounts OR shared accounts (owner_id is NULL)
-            from sqlalchemy import or_
             monthly_spending_query = monthly_spending_query.join(
                 models.Account, models.Transaction.account_id == models.Account.id
             ).filter(
@@ -106,6 +104,26 @@ class AnalyticsService:
                                                            .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
         
         monthly_spending = abs(float(monthly_spending_query.scalar() or 0))
+        
+        # 2b. Total Excluded for the period
+        def get_excluded_sum(is_income: bool):
+            q = db.query(func.sum(models.Transaction.amount)).filter(
+                models.Transaction.tenant_id == tenant_id,
+                or_(models.Transaction.exclude_from_reports == True, models.Transaction.is_transfer == True)
+            )
+            if is_income: q = q.filter(models.Transaction.amount > 0)
+            else: q = q.filter(models.Transaction.amount < 0)
+            
+            if start_date: q = q.filter(models.Transaction.date >= start_date)
+            if end_date: q = q.filter(models.Transaction.date <= end_date)
+            if account_id: q = q.filter(models.Transaction.account_id == account_id)
+            if user_id:
+                q = q.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                     .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+            return abs(float(q.scalar() or 0))
+
+        total_excluded = get_excluded_sum(False) # Expenses
+        excluded_income = get_excluded_sum(True) # Incomes
         
         # 3. Overall Budget Health
         all_budgets = db.query(models.Budget).filter(models.Budget.tenant_id == tenant_id).all()
@@ -152,7 +170,8 @@ class AnalyticsService:
         ).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         )
         
         if start_date:
@@ -161,7 +180,6 @@ class AnalyticsService:
             top_cat_query = top_cat_query.filter(models.Transaction.date <= end_date)
         if user_id:
             # Filter by account ownership
-            from sqlalchemy import or_
             top_cat_query = top_cat_query.join(
                 models.Account, models.Transaction.account_id == models.Account.id
             ).filter(
@@ -221,16 +239,15 @@ class AnalyticsService:
             credit_intelligence.append(intel)
 
         # 7. Calculate today's total spending
-        from datetime import datetime
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         today_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False,
             models.Transaction.date >= today_start
         )
         if user_id:
-            from sqlalchemy import or_
             today_spending_query = today_spending_query.join(
                 models.Account, models.Transaction.account_id == models.Account.id
             ).filter(
@@ -242,10 +259,10 @@ class AnalyticsService:
         latest_txn_query = db.query(models.Transaction).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         )
         if user_id:
-            from sqlalchemy import or_
             latest_txn_query = latest_txn_query.join(
                 models.Account, models.Transaction.account_id == models.Account.id
             ).filter(
@@ -266,6 +283,8 @@ class AnalyticsService:
             "today_total": today_total,
             "monthly_total": monthly_spending,
             "monthly_spending": monthly_spending,  # Keep for backward compatibility
+            "total_excluded": total_excluded,
+            "excluded_income": excluded_income,
             "top_spending_category": top_spending_category,
             "budget_health": budget_health,
             "credit_intelligence": credit_intelligence,
@@ -276,13 +295,11 @@ class AnalyticsService:
 
     @staticmethod
     def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30, user_id: str = None):
-        from datetime import date, timedelta
         from .mutual_funds import MutualFundService
         
         # 1. Get current static balances (Bank + Cash - Credit Debt - Loans)
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
         if user_id:
-            from sqlalchemy import or_
             accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
             
         accounts = accounts_query.all()
@@ -306,7 +323,6 @@ class AnalyticsService:
         
         if user_id:
             # Filter by account ownership
-            from sqlalchemy import or_
             transactions_grouped_query = transactions_grouped_query.join(
                 models.Account, models.Transaction.account_id == models.Account.id
             ).filter(
@@ -355,7 +371,6 @@ class AnalyticsService:
 
     @staticmethod
     def get_spending_trend(db: Session, tenant_id: str, user_id: str = None):
-        from datetime import date, timedelta
         
         now = datetime.utcnow()
         start_date = datetime(now.year, now.month, 1)
@@ -368,12 +383,12 @@ class AnalyticsService:
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         )
         
         if user_id:
             # Filter by account ownership
-            from sqlalchemy import or_
             query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
                          .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
             
@@ -396,7 +411,6 @@ class AnalyticsService:
 
     @staticmethod
     def get_balance_forecast(db: Session, tenant_id: str, days: int = 30, account_id: str = None):
-        from datetime import timedelta
         
         # 1. Starting Balance (Liquid assets only)
         liquid_accounts_query = db.query(models.Account).filter(
@@ -425,7 +439,8 @@ class AnalyticsService:
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= thirty_days_ago,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         )
         if account_id:
             recent_txns_query = recent_txns_query.filter(models.Transaction.account_id == account_id)
@@ -466,7 +481,6 @@ class AnalyticsService:
         return forecast
     @staticmethod
     def get_budget_history(db: Session, tenant_id: str, months: int = 6):
-        from datetime import timedelta
         
         # Get all budgets to know which categories to track
         budgets = db.query(models.Budget).filter(models.Budget.tenant_id == tenant_id).all()
@@ -500,7 +514,8 @@ class AnalyticsService:
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_range,
             models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         ).group_by(
             models.Transaction.category,
             text('month_start')
@@ -523,7 +538,8 @@ class AnalyticsService:
                 models.Transaction.tenant_id == tenant_id,
                 models.Transaction.date >= start_range,
                 models.Transaction.amount < 0,
-                models.Transaction.is_transfer == False
+                models.Transaction.is_transfer == False,
+                models.Transaction.exclude_from_reports == False
             ).group_by(
                 text('month_start')
             ).all()

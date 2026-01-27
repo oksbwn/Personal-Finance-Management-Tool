@@ -78,7 +78,8 @@ class RecurringService:
                 category=item.category,
                 type=item.type,
                 source="RECURRING",
-                external_id=f"rec_{item.id}_{item.next_run_date.strftime('%Y%m%d')}" # De-dup key
+                external_id=f"rec_{item.id}_{item.next_run_date.strftime('%Y%m%d')}", # De-dup key
+                exclude_from_reports=item.exclude_from_reports
             )
             
             exists = db.query(models.Transaction).filter(

@@ -82,5 +82,6 @@ def smart_categorize_transaction(
         payload.category, 
         str(current_user.tenant_id),
         create_rule=payload.create_rule,
-        apply_to_similar=payload.apply_to_similar
+        apply_to_similar=payload.apply_to_similar,
+        exclude_from_reports=payload.exclude_from_reports
     )

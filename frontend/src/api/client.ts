@@ -56,8 +56,13 @@ export interface AccountUpdate {
 }
 
 export interface TransactionUpdate {
-    category?: string;
     description?: string;
+    category?: string;
+    amount?: number;
+    date?: string;
+    is_transfer?: boolean;
+    to_account_id?: string;
+    exclude_from_reports?: boolean;
 }
 
 export const financeApi = {
@@ -70,7 +75,7 @@ export const financeApi = {
         apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate, search, category } }),
     createTransaction: (data: any) => apiClient.post('/finance/transactions', data),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
-    smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
+    smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean, exclude_from_reports?: boolean }) =>
         apiClient.post('/finance/transactions/smart-categorize', data),
     bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
     getMetrics: (accountId?: string, startDate?: string, endDate?: string, userId?: string) =>
@@ -130,7 +135,7 @@ export const financeApi = {
 
     // Triage & Training
     getTriage: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/triage', { params }),
-    approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
+    approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean, exclude_from_reports?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
     rejectTriage: (id: string, createIgnoreRule: boolean = false) => apiClient.delete(`/ingestion/triage/${id}`, { params: { create_ignore_rule: createIgnoreRule } }),
     bulkRejectTriage: (ids: string[], createIgnoreRules: boolean = false) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids, create_ignore_rules: createIgnoreRules }),
     getTraining: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/training', { params }),

@@ -569,6 +569,7 @@
                             </svg>
                             <input type="text" v-model="searchQuery" placeholder="Search rules..." class="search-input">
                         </div>
+
                         <div class="header-with-badge"
                             style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
                             <h3
@@ -641,8 +642,10 @@
                             <div class="rule-header">
                                 <div class="rule-main">
                                     <h3 class="rule-name">{{ rule.name }}</h3>
-                                    <div class="rule-target">
+                                    <div class="rule-target" style="display: flex; align-items: center; gap: 0.5rem;">
                                         <span class="category-pill-sm">{{ getCategoryDisplay(rule.category) }}</span>
+                                        <span v-if="rule.exclude_from_reports" class="status-badge-mini danger"
+                                            title="Automatically hidden from analytics">🚫 Hidden</span>
                                     </div>
                                 </div>
                                 <div class="rule-actions">
@@ -1538,6 +1541,18 @@
                             placeholder="Uber, Lyft, Ola"></textarea>
                     </div>
 
+                    <div class="setting-toggle-row">
+                        <div class="toggle-label">
+                            <span class="font-medium">Auto-Exclude from Reports</span>
+                            <span class="text-xs text-muted">Automatically hide matching transactions from
+                                analytics</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="newRule.exclude_from_reports">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
                     <div class="modal-footer">
                         <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
                         <button type="submit" class="btn-primary-glow">Save Rule</button>
@@ -1666,6 +1681,46 @@
         </div>
 
 
+
+        <!-- Auto-Exclude Confirmation -->
+        <div v-if="showExcludeConfirm" class="modal-overlay-global">
+            <div class="modal-global glass alert max-w-md">
+                <div class="modal-icon-header warning">⚠️</div>
+                <h2 class="modal-title">Enable Auto-Exclude?</h2>
+                <div class="alert-info-box mb-6">
+                    <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
+                    <p class="text-sm text-muted">
+                        Matching transactions will be tagged as non-reportable and will be <strong>hidden from
+                            analytics</strong> by default.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
+                    <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Auto-Exclude Confirmation -->
+        <div v-if="showExcludeConfirm" class="modal-overlay-global">
+            <div class="modal-global glass alert max-w-md">
+                <div class="modal-icon-header warning">⚠️</div>
+                <h2 class="modal-title">Enable Auto-Exclude?</h2>
+                <div class="alert-info-box mb-6">
+                    <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
+                    <p class="text-sm text-muted">
+                        Matching transactions will be tagged as non-reportable and will be <strong>hidden from
+                            analytics</strong> by default.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
+                    <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Add/Edit Family Member Modal -->
         <div v-if="showMemberModal" class="modal-overlay-global">
             <div class="modal-global glass">
@@ -1718,7 +1773,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
+                        }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1953,6 +2008,7 @@ const accountMetrics = computed(() => {
 const rules = ref<any[]>([])
 const filteredRules = computed(() => {
     if (!searchQuery.value) return rules.value
+
     const q = searchQuery.value.toLowerCase()
     return rules.value.filter(r =>
         r.name.toLowerCase().includes(q) ||
@@ -1990,13 +2046,15 @@ const suggestions = ref<any[]>([])
 const showModal = ref(false)
 const showDeleteConfirm = ref(false)
 const ruleToDelete = ref<string | null>(null)
+const showExcludeConfirm = ref(false)
 
 const isEditing = ref(false)
 const editingId = ref<string | null>(null)
 const newRule = ref({
     name: '',
     category: '',
-    keywords: ''
+    keywords: '',
+    exclude_from_reports: false
 })
 
 // Account Deletion State
@@ -2600,7 +2658,7 @@ async function confirmDelete() {
 function openAddModal() {
     isEditing.value = false
     editingId.value = null
-    newRule.value = { name: '', category: '', keywords: '' }
+    newRule.value = { name: '', category: '', keywords: '', exclude_from_reports: false }
     showModal.value = true
 }
 
@@ -2610,7 +2668,8 @@ function openEditModal(rule: any) {
     newRule.value = {
         name: rule.name,
         category: rule.category,
-        keywords: rule.keywords.join(', ')
+        keywords: rule.keywords.join(', '),
+        exclude_from_reports: rule.exclude_from_reports || false
     }
     showModal.value = true
 }
@@ -2645,6 +2704,17 @@ async function ignoreSuggestion(s: any) {
 async function saveRule() {
     if (!newRule.value.name || !newRule.value.category || !newRule.value.keywords) return
 
+    // If auto-exclude is on, ask for confirmation first
+    if (newRule.value.exclude_from_reports) {
+        showExcludeConfirm.value = true
+        return
+    }
+
+    // Otherwise proceed directly
+    await confirmSaveRule()
+}
+
+async function confirmSaveRule() {
     // Parse keywords: comma separated -> list
     const keywordList = newRule.value.keywords.split(',').map(k => k.trim())
     const payload = {
@@ -2654,16 +2724,23 @@ async function saveRule() {
     }
 
     try {
+        let isUpdate = false
         if (isEditing.value && editingId.value) {
+            isUpdate = true
             await financeApi.updateRule(editingId.value, payload)
-            notify.success("Rule updated successfully!")
         } else {
             await financeApi.createRule(payload)
-            notify.success("New rule created successfully!")
+        }
+
+        if (newRule.value.exclude_from_reports) {
+            notify.success(`Rule saved! ${isUpdate ? 'Matching' : 'Future'} transactions will be hidden from reports.`)
+        } else {
+            notify.success(isUpdate ? "Rule updated successfully!" : "New rule created successfully!")
         }
 
         showModal.value = false
-        newRule.value = { name: '', category: '', keywords: '' }
+        showExcludeConfirm.value = false
+        newRule.value = { name: '', category: '', keywords: '', exclude_from_reports: false }
         fetchData()
     } catch (err) {
         console.error(err)

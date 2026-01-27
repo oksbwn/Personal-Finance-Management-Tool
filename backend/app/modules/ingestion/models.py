@@ -62,6 +62,7 @@ class PendingTransaction(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
+    exclude_from_reports = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class MobileDevice(Base):

@@ -40,6 +40,7 @@ const budgetHistory = ref<any[]>([])
 const aiInsights = ref<string>('')
 const generatingAI = ref(false)
 const loading = ref(false)
+const showExcludedDetails = ref(false)
 
 onMounted(async () => {
     await store.fetchAll()
@@ -50,7 +51,7 @@ function handleTimeRangeChange(val: string) {
     const now = new Date()
     const start = new Date()
     const end = new Date()
-    
+
     startDate.value = ''
     endDate.value = ''
 
@@ -79,7 +80,7 @@ function handleTimeRangeChange(val: string) {
         startDate.value = start.toISOString().split('T')[0]
         endDate.value = end.toISOString().split('T')[0]
     }
-    
+
     fetchAnalyticsData()
 }
 
@@ -91,7 +92,7 @@ async function fetchAnalyticsData() {
             end_date: endDate.value,
             account_id: selectedAccount.value || undefined
         }
-        
+
         const [txnRes, metricsRes, forecastRes, budgetRes, historyRes] = await Promise.all([
             financeApi.getTransactions(params.account_id, 1, 1000, params.start_date || undefined, params.end_date || undefined),
             financeApi.getMetrics(params.account_id, params.start_date || undefined, params.end_date || undefined),
@@ -114,18 +115,18 @@ async function fetchAnalyticsData() {
 async function generateAIInsights() {
     generatingAI.value = true
     try {
-        const timeContext = selectedTimeRange.value === 'custom' 
+        const timeContext = selectedTimeRange.value === 'custom'
             ? `from ${startDate.value} to ${endDate.value}`
             : `for ${selectedTimeRange.value.replace('-', ' ')}`
-        
+
         const velocity = budgetHistory.value.length > 0 ? `Spending velocity is currently showing a ${overallBudget.value?.percentage > 80 ? 'HIGH' : 'STABLE'} trend relative to the monthly cycle.` : ''
-        
+
         const res = await aiApi.generateSummaryInsights({
             ...analyticsMetrics.value,
-            budgets: budgets.value.map(b => ({ 
-                category: b.category, 
-                limit: b.amount_limit, 
-                spent: b.spent, 
+            budgets: budgets.value.map(b => ({
+                category: b.category,
+                limit: b.amount_limit,
+                spent: b.spent,
                 percent: b.percentage,
                 status: b.percentage > 100 ? 'EXCEEDED' : (b.percentage > 80 ? 'CRITICAL' : 'OK')
             })),
@@ -160,7 +161,10 @@ const analyticsData = computed(() => {
     const data = transactions.value || []
     let income = 0
     let expense = 0
+    let excludedExpense = 0
+    let excludedIncome = 0
     const catMap: Record<string, number> = {}
+    const excludedCatMap: Record<string, number> = {}
     const dateMap: Record<string, number> = {}
     const merchantMap: Record<string, number> = {}
     const accountMap: Record<string, number> = {}
@@ -182,9 +186,17 @@ const analyticsData = computed(() => {
         const amt = Number(t.amount)
         const isExpense = amt < 0
         const isTransfer = t.is_transfer === true
+        const isExcluded = t.exclude_from_reports === true
         const absAmt = Math.abs(amt)
 
-        if (isTransfer) return
+        if (isExcluded || isTransfer) {
+            if (isExpense) excludedExpense += absAmt
+            else excludedIncome += absAmt
+
+            const cat = t.category || (isTransfer ? 'Transfer' : 'Uncategorized')
+            excludedCatMap[cat] = (excludedCatMap[cat] || 0) + absAmt
+            return
+        }
 
         if (!isExpense) income += absAmt
         else {
@@ -221,14 +233,19 @@ const analyticsData = computed(() => {
     })
 
     const toSortedArray = (map: Record<string, number>) => {
-        return Object.entries(map).sort((a,b) => b[1] - a[1]).map(([name, value]) => ({ name, value }))
+        return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }))
     }
 
     return {
         income,
         expense,
+        excludedExpense,
+        excludedIncome,
         net: income - expense,
-        categories: Object.entries(catMap).sort((a,b) => b[1] - a[1]).map(([name, value]) => ({
+        categories: Object.entries(catMap).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({
+            name, value, color: store.getCategoryColor(name), icon: store.getCategoryIcon(name)
+        })),
+        excludedCategories: Object.entries(excludedCatMap).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({
             name, value, color: store.getCategoryColor(name), icon: store.getCategoryIcon(name)
         })),
         merchants: toSortedArray(merchantMap).slice(0, 5),
@@ -241,7 +258,7 @@ const analyticsData = computed(() => {
             percent: totalLimit > 0 ? (totalConsumed / totalLimit * 100) : 0
         },
         patterns: {
-            weekend: weekendSpend, 
+            weekend: weekendSpend,
             weekday: weekdaySpend,
             weekendPercent: expense > 0 ? (weekendSpend / expense * 100) : 0,
             weekdayPercent: expense > 0 ? (weekdaySpend / expense * 100) : 0
@@ -257,7 +274,7 @@ const categoryOptions = computed(() => {
 
 const filteredTrendData = computed(() => {
     const txns = transactions.value.filter(t => {
-        if (t.is_transfer) return false
+        if (t.is_transfer || t.exclude_from_reports) return false
         if (Number(t.amount) >= 0) return false
         if (selectedTrendCategory.value && t.category !== selectedTrendCategory.value) return false
         return true
@@ -265,8 +282,8 @@ const filteredTrendData = computed(() => {
 
     const map: Record<string, number> = {}
     txns.forEach(t => {
-        const key = trendView.value === 'daily' 
-            ? t.date.split('T')[0] 
+        const key = trendView.value === 'daily'
+            ? t.date.split('T')[0]
             : t.date.slice(0, 7) // YYYY-MM
         map[key] = (map[key] || 0) + Math.abs(Number(t.amount))
     })
@@ -294,7 +311,7 @@ const trendChartData = computed(() => ({
 const heatmapData = computed(() => {
     const hours = Array.from({ length: 24 }, (_, i) => i)
     const activeCats = analyticsData.value.categories.slice(0, 8).map(c => c.name)
-    
+
     // category -> hour -> amount
     const grid: Record<string, Record<number, number>> = {}
     activeCats.forEach(cat => {
@@ -305,7 +322,7 @@ const heatmapData = computed(() => {
     transactions.value.forEach(t => {
         if (Number(t.amount) >= 0 || t.is_transfer) return
         if (!activeCats.includes(t.category)) return
-        
+
         const date = new Date(t.date)
         const hour = date.getHours()
         if (grid[t.category]) {
@@ -365,7 +382,8 @@ const newRecurrence = ref({
     account_id: '',
     frequency: 'MONTHLY',
     start_date: new Date().toISOString().slice(0, 10),
-    type: 'DEBIT' 
+    type: 'DEBIT',
+    exclude_from_reports: false
 })
 
 async function saveRecurrence() {
@@ -382,7 +400,7 @@ async function saveRecurrence() {
 }
 
 function deleteRecurrence(id: string) {
-    if(!confirm("Stop this subscription?")) return;
+    if (!confirm("Stop this subscription?")) return;
     financeApi.deleteRecurring(id).then(() => store.fetchRecurring())
 }
 
@@ -396,36 +414,25 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
             <div class="header-left">
                 <h1 class="page-title">Insights</h1>
                 <div class="header-tabs">
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'analytics' }"
-                        @click="activeTab = 'analytics'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'analytics' }"
+                        @click="activeTab = 'analytics'">
                         Analytics
                     </button>
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'recurring' }"
-                        @click="activeTab = 'recurring'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'recurring' }"
+                        @click="activeTab = 'recurring'">
                         Recurring
                     </button>
                 </div>
                 <span class="transaction-count">{{ analyticsData.count }} records analyzed</span>
             </div>
             <div class="header-actions">
-                <CustomSelect 
-                    v-if="activeTab === 'analytics'" 
-                    v-model="selectedAccount" 
-                    :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]"
-                    placeholder="All Accounts"
-                    @update:modelValue="fetchAnalyticsData"
-                    class="account-select"
-                />
+                <CustomSelect v-if="activeTab === 'analytics'" v-model="selectedAccount"
+                    :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]" placeholder="All Accounts"
+                    @update:modelValue="fetchAnalyticsData" class="account-select" />
 
                 <button v-if="activeTab === 'recurring'" @click="showAddModal = true" class="btn-compact btn-primary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 5v14M5 12h14"/>
+                        <path d="M12 5v14M5 12h14" />
                     </svg>
                     Add Subscription
                 </button>
@@ -437,13 +444,9 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                 <div class="filter-group">
                     <span class="filter-label">Time Range:</span>
                     <div class="range-pill-group">
-                        <button 
-                            v-for="opt in timeRangeOptions" 
-                            :key="opt.value"
-                            class="range-pill"
+                        <button v-for="opt in timeRangeOptions" :key="opt.value" class="range-pill"
                             :class="{ active: selectedTimeRange === opt.value }"
-                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)"
-                        >
+                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)">
                             {{ opt.label }}
                         </button>
                     </div>
@@ -458,7 +461,8 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                 </div>
             </div>
 
-            <button v-if="startDate || endDate" class="btn-link" @click="selectedTimeRange='all'; handleTimeRangeChange('all')">
+            <button v-if="startDate || endDate" class="btn-link"
+                @click="selectedTimeRange = 'all'; handleTimeRangeChange('all')">
                 Reset
             </button>
         </div>
@@ -474,19 +478,20 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                                 <div class="ai-sparkle-icon">✨</div>
                                 <div class="ai-title-group">
                                     <h3 class="ai-card-title">AI Financial Intelligence</h3>
-                                    <p class="ai-card-subtitle">Personalized spending vectors and optimization strategy</p>
+                                    <p class="ai-card-subtitle">Personalized spending vectors and optimization strategy
+                                    </p>
                                 </div>
                             </div>
-                            <button 
-                                @click="generateAIInsights"
-                                :disabled="generatingAI"
-                                class="ai-btn-glass"
-                            >
-                                <svg v-if="!generatingAI" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>
+                            <button @click="generateAIInsights" :disabled="generatingAI" class="ai-btn-glass">
+                                <svg v-if="!generatingAI" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2.5">
+                                    <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path d="M9 12l2 2 4-4" />
+                                </svg>
                                 {{ generatingAI ? 'Analyzing...' : 'Refresh Insights' }}
                             </button>
                         </div>
-                        
+
                         <div v-if="aiInsights" class="ai-insight-box custom-scrollbar">
                             <div class="ai-insight-text markdown-body" v-html="marked(aiInsights)"></div>
                         </div>
@@ -533,6 +538,58 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                     </div>
                 </div>
 
+                <div v-if="analyticsData.excludedExpense > 0 || analyticsData.excludedIncome > 0"
+                    class="excluded-info-banner animate-in"
+                    :style="`margin-bottom: 2rem; background: #f8fafc; border: 1px dashed #cbd5e1; padding: 1.25rem; border-radius: 1.25rem; cursor: pointer; transition: all 0.2s ease; ${showExcludedDetails ? 'border-style: solid; border-color: #94a3b8; background: white;' : ''}`"
+                    @click="showExcludedDetails = !showExcludedDetails">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <span style="font-size: 1.5rem;">🚫</span>
+                            <div>
+                                <p style="margin: 0; font-size: 0.875rem; font-weight: 600; color: #475569;">
+                                    Some transactions are hidden from these charts
+                                </p>
+                                <p style="margin: 0; font-size: 0.75rem; color: #64748b;">
+                                    {{ showExcludedDetails ? `Category breakdown of hidden items:` :
+                                        `You have marked certain items to be excluded from reports and analytics.` }}
+                                </p>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="text-align: right;">
+                                <span v-if="analyticsData.excludedExpense > 0"
+                                    style="font-size: 0.8125rem; font-weight: 700; color: #94a3b8; margin-left: 1rem;">
+                                    −{{ formatAmount(analyticsData.excludedExpense) }} Exp
+                                </span>
+                                <span v-if="analyticsData.excludedIncome > 0"
+                                    style="font-size: 0.8125rem; font-weight: 700; color: #10b981; margin-left: 1rem;">
+                                    +{{ formatAmount(analyticsData.excludedIncome) }} Inc
+                                </span>
+                            </div>
+                            <span style="font-size: 0.75rem; color: #94a3b8; transition: transform 0.2s ease;"
+                                :style="showExcludedDetails ? 'transform: rotate(180deg)' : ''">
+                                🔽
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Details Breakdown -->
+                    <div v-if="showExcludedDetails" class="excluded-details animate-in"
+                        style="margin-top: 1.25rem; border-top: 1px solid #f1f5f9; padding-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem;">
+                        <div v-for="cat in analyticsData.excludedCategories" :key="cat.name"
+                            style="display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 0.5rem 0.75rem; border-radius: 0.75rem; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                                <span style="font-size: 1rem;">{{ cat.icon || '🏷️' }}</span>
+                                <span
+                                    style="font-size: 0.75rem; font-weight: 600; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{
+                                        cat.name }}</span>
+                            </div>
+                            <span style="font-size: 0.75rem; font-weight: 700; color: #64748b;">{{
+                                formatAmount(cat.value) }}</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Charts Section -->
                 <div class="analytics-grid">
                     <div class="analytics-card">
@@ -545,16 +602,11 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                     <div class="analytics-card">
                         <h3 class="card-title">Top Merchants</h3>
                         <div class="chart-box">
-                            <BaseChart 
-                                type="bar" 
-                                :data="merchantChartData" 
-                                :height="250" 
-                                :options="{ 
-                                    indexAxis: 'y',
-                                    plugins: { legend: { display: false } },
-                                    scales: { x: { grid: { display: false } }, y: { grid: { display: false } } }
-                                }" 
-                            />
+                            <BaseChart type="bar" :data="merchantChartData" :height="250" :options="{
+                                indexAxis: 'y',
+                                plugins: { legend: { display: false } },
+                                scales: { x: { grid: { display: false } }, y: { grid: { display: false } } }
+                            }" />
                         </div>
                     </div>
 
@@ -563,24 +615,18 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                             <h3 class="card-title">Spending Trends</h3>
                             <div class="card-controls">
                                 <div class="toggle-group">
-                                    <button :class="{ active: trendView === 'daily' }" @click="trendView = 'daily'">Day</button>
-                                    <button :class="{ active: trendView === 'monthly' }" @click="trendView = 'monthly'">Month</button>
+                                    <button :class="{ active: trendView === 'daily' }"
+                                        @click="trendView = 'daily'">Day</button>
+                                    <button :class="{ active: trendView === 'monthly' }"
+                                        @click="trendView = 'monthly'">Month</button>
                                 </div>
-                                <CustomSelect 
-                                    v-model="selectedTrendCategory" 
-                                    :options="categoryOptions"
-                                    placeholder="All Categories"
-                                    class="mini-select"
-                                />
+                                <CustomSelect v-model="selectedTrendCategory" :options="categoryOptions"
+                                    placeholder="All Categories" class="mini-select" />
                             </div>
                         </div>
                         <div class="chart-box-large">
-                            <BaseChart 
-                                v-if="filteredTrendData.length > 0"
-                                type="line" 
-                                :data="trendChartData" 
-                                :height="400"
-                            />
+                            <BaseChart v-if="filteredTrendData.length > 0" type="line" :data="trendChartData"
+                                :height="400" />
                             <div v-else class="empty-chart-state">No data for this filter</div>
                         </div>
                     </div>
@@ -588,29 +634,28 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                     <div class="analytics-card full-width">
                         <h3 class="card-title">Future Balance Forecast (30 Days)</h3>
                         <div class="chart-box relative">
-                            <BaseChart 
-                                v-if="forecastData.length > 0"
-                                type="line" 
-                                :data="forecastChartData" 
-                                :height="250"
-                            />
-                             <div v-else class="empty-chart-state">Calculating...</div>
+                            <BaseChart v-if="forecastData.length > 0" type="line" :data="forecastChartData"
+                                :height="250" />
+                            <div v-else class="empty-chart-state">Calculating...</div>
                         </div>
                         <div class="forecast-footer">
-                             <div class="forecast-info">
-                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-                                 Forecast factors in upcoming subscriptions and average spending velocity
-                             </div>
-                             <div class="forecast-net">
-                                 Est. Net Change: {{ formatAmount(analyticsData.net + (store.recurringTransactions.reduce((acc, t) => acc + (t.type === 'DEBIT' ? -t.amount : t.amount), 0))) }}
-                             </div>
+                            <div class="forecast-info">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M12 16v-4M12 8h.01" />
+                                </svg>
+                                Forecast factors in upcoming subscriptions and average spending velocity
+                            </div>
+                            <div class="forecast-net">
+                                Est. Net Change: {{formatAmount(analyticsData.net +
+                                    (store.recurringTransactions.reduce((acc, t) => acc + (t.type === 'DEBIT' ? -t.amount :
+                                        t.amount), 0)))}}
+                            </div>
                         </div>
                     </div>
 
-                    <BudgetHistoryChart 
-                        v-if="budgetHistory.length > 0" 
-                        :history="budgetHistory" 
-                    />
+                    <BudgetHistoryChart v-if="budgetHistory.length > 0" :history="budgetHistory" />
 
                     <!-- Heatmap Section -->
                     <div class="analytics-card full-width">
@@ -623,14 +668,10 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                             <div v-for="cat in heatmapData.categories" :key="cat" class="heatmap-row">
                                 <div class="heatmap-cat-label text-truncate">{{ cat }}</div>
                                 <div v-for="h in heatmapData.hours" :key="h" class="heatmap-cell-wrapper">
-                                    <div 
-                                        class="heatmap-cell"
-                                        :style="{ 
-                                            opacity: heatmapData.grid[cat][h] > 0 ? 0.2 + (heatmapData.grid[cat][h] / heatmapData.max * 0.8) : 0.05,
-                                            backgroundColor: store.getCategoryColor(cat) || '#4f46e5'
-                                        }"
-                                        :title="`${cat} at ${h}h: ${formatAmount(heatmapData.grid[cat][h])}`"
-                                    ></div>
+                                    <div class="heatmap-cell" :style="{
+                                        opacity: heatmapData.grid[cat][h] > 0 ? 0.2 + (heatmapData.grid[cat][h] / heatmapData.max * 0.8) : 0.05,
+                                        backgroundColor: store.getCategoryColor(cat) || '#4f46e5'
+                                    }" :title="`${cat} at ${h}h: ${formatAmount(heatmapData.grid[cat][h])}`"></div>
                                 </div>
                             </div>
                         </div>
@@ -640,7 +681,8 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                                 <div class="legend-gradient"></div>
                                 <span class="legend-label">High Spending</span>
                             </div>
-                            <span class="heatmap-hint text-xs">Higher opacity indicates more spending activity in that hour.</span>
+                            <span class="heatmap-hint text-xs">Higher opacity indicates more spending activity in that
+                                hour.</span>
                         </div>
                     </div>
 
@@ -648,13 +690,16 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                     <div class="analytics-card">
                         <h3 class="card-title">Spending Breakdown</h3>
                         <div class="category-list">
-                            <div v-for="cat in analyticsData.categories.slice(0, 6)" :key="cat.name" class="category-item-box">
+                            <div v-for="cat in analyticsData.categories.slice(0, 6)" :key="cat.name"
+                                class="category-item-box">
                                 <div class="item-header">
                                     <span class="item-name">{{ cat.name }}</span>
                                     <span class="item-value">{{ formatAmount(cat.value) }}</span>
                                 </div>
                                 <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill" :style="{ width: `${(cat.value / analyticsData.expense * 100)}%`, backgroundColor: cat.color }"></div>
+                                    <div class="progress-bar-fill"
+                                        :style="{ width: `${(cat.value / analyticsData.expense * 100)}%`, backgroundColor: cat.color }">
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -676,24 +721,31 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
             <!-- RECURRING TAB -->
             <div v-else class="recurring-layout">
                 <div class="recurring-grid">
-                    <div v-for="rec in store.recurringTransactions" :key="rec.id" class="recurring-card flex justify-between items-center group">
+                    <div v-for="rec in store.recurringTransactions" :key="rec.id"
+                        class="recurring-card flex justify-between items-center group">
                         <div class="flex items-center gap-4">
                             <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-gray-50 text-2xl">
                                 {{ store.getCategoryIcon(rec.category) }}
                             </div>
                             <div>
                                 <h3 class="font-bold text-gray-900">{{ rec.name }}</h3>
-                                <p class="text-xs text-gray-500 font-medium">Next: {{ new Date(rec.next_run_date).toLocaleDateString() }} • {{ rec.frequency }}</p>
+                                <p class="text-xs text-gray-500 font-medium">Next: {{ new
+                                    Date(rec.next_run_date).toLocaleDateString() }} • {{ rec.frequency }}
+                                    <span v-if="rec.exclude_from_reports" class="ml-2 text-rose-500 font-bold"
+                                        title="Excluded from reports">🚫 Excluded</span>
+                                </p>
                             </div>
                         </div>
                         <div class="text-right">
                             <p class="font-bold text-gray-900">{{ formatAmount(rec.amount) }}</p>
-                            <button @click="deleteRecurrence(rec.id)" class="text-xs text-red-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Cancel</button>
+                            <button @click="deleteRecurrence(rec.id)"
+                                class="text-xs text-red-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Cancel</button>
                         </div>
                     </div>
                 </div>
-                
-                <div v-if="store.recurringTransactions.length === 0" class="py-20 text-center bg-white rounded-2xl border border-dashed border-gray-300">
+
+                <div v-if="store.recurringTransactions.length === 0"
+                    class="py-20 text-center bg-white rounded-2xl border border-dashed border-gray-300">
                     <p class="text-2xl mb-2">📫</p>
                     <h3 class="font-bold text-gray-900">No active subscriptions</h3>
                     <p class="text-sm text-gray-500">Add your recurring bills to see them here.</p>
@@ -708,13 +760,14 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                     <h3 class="modal-title">New Subscription</h3>
                     <button @click="showAddModal = false" class="btn-icon">✕</button>
                 </div>
-                
+
                 <div class="space-y-4">
                     <div class="form-group">
                         <label class="form-label">Name</label>
-                        <input v-model="newRecurrence.name" type="text" class="form-input" placeholder="Netflix, Rent, etc.">
+                        <input v-model="newRecurrence.name" type="text" class="form-input"
+                            placeholder="Netflix, Rent, etc.">
                     </div>
-                    
+
                     <div class="grid grid-cols-2 gap-4">
                         <div class="form-group">
                             <label class="form-label">Amount</label>
@@ -733,22 +786,30 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                             <label class="form-label">Start Date</label>
                             <input v-model="newRecurrence.start_date" type="date" class="form-input">
                         </div>
-                         <div class="form-group">
+                        <div class="form-group">
                             <label class="form-label">Account</label>
                             <select v-model="newRecurrence.account_id" class="form-select">
                                 <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                             </select>
                         </div>
                     </div>
-                    
-                     <div class="form-group">
+
+                    <div class="form-group">
                         <label class="form-label">Category</label>
                         <select v-model="newRecurrence.category" class="form-select">
-                             <option v-for="c in store.categories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+                            <option v-for="c in store.categories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}
+                            </option>
                         </select>
                     </div>
+
+                    <div class="form-group flex items-center gap-2 p-3 bg-rose-50 rounded-xl border border-rose-100">
+                        <input type="checkbox" v-model="newRecurrence.exclude_from_reports" id="excludeRec"
+                            class="w-4 h-4 text-rose-600 focus:ring-rose-500 border-gray-300 rounded">
+                        <label for="excludeRec" class="text-sm font-bold text-rose-800 cursor-pointer">Exclude generated
+                            transactions from reports</label>
+                    </div>
                 </div>
-                
+
                 <div class="modal-footer">
                     <button @click="showAddModal = false" class="btn btn-outline">Cancel</button>
                     <button @click="saveRecurrence" class="btn btn-primary">Start Subscription</button>
@@ -904,14 +965,31 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     display: block;
 }
 
-.income .card-icon { background: #ecfdf5; color: #059669; }
-.expense .card-icon { background: #fef2f2; color: #dc2626; }
-.net .card-icon { background: #eff6ff; color: #4f46e5; }
+.income .card-icon {
+    background: #ecfdf5;
+    color: #059669;
+}
 
-.income .card-value { color: #059669; }
-.expense .card-value { color: #dc2626; }
+.expense .card-icon {
+    background: #fef2f2;
+    color: #dc2626;
+}
 
-.analytics-layout, .recurring-layout {
+.net .card-icon {
+    background: #eff6ff;
+    color: #4f46e5;
+}
+
+.income .card-value {
+    color: #059669;
+}
+
+.expense .card-value {
+    color: #dc2626;
+}
+
+.analytics-layout,
+.recurring-layout {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -1063,9 +1141,29 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     z-index: 1;
 }
 
-.blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -150px; right: -100px; }
-.blob-2 { width: 350px; height: 350px; background: #6366f1; bottom: -100px; left: -100px; }
-.blob-3 { width: 250px; height: 250px; background: #1e40af; top: 10%; left: 20%; }
+.blob-1 {
+    width: 400px;
+    height: 400px;
+    background: #3b82f6;
+    top: -150px;
+    right: -100px;
+}
+
+.blob-2 {
+    width: 350px;
+    height: 350px;
+    background: #6366f1;
+    bottom: -100px;
+    left: -100px;
+}
+
+.blob-3 {
+    width: 250px;
+    height: 250px;
+    background: #1e40af;
+    top: 10%;
+    left: 20%;
+}
 
 /* Skeleton */
 .ai-loading-skeleton {
@@ -1095,8 +1193,13 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 }
 
 @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -1128,7 +1231,8 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     margin-bottom: 0.75rem;
 }
 
-.markdown-body :deep(ul), .markdown-body :deep(ol) {
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
     padding-left: 1.25rem;
     margin-bottom: 0.75rem;
 }
@@ -1165,7 +1269,9 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     font-weight: 700;
     font-size: 0.875rem;
     color: #111827;
-}.item-header {
+}
+
+.item-header {
     display: flex;
     justify-content: space-between;
     margin-bottom: 0.25rem;
@@ -1211,13 +1317,15 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     background: #f9fafb;
 }
 
-.category-list, .merchant-list {
+.category-list,
+.merchant-list {
     display: flex;
     flex-direction: column;
     gap: 1rem;
 }
 
-.category-item, .merchant-item {
+.category-item,
+.merchant-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1262,10 +1370,13 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 }
 
 /* Animations */
-.fade-enter-active, .fade-leave-active {
+.fade-enter-active,
+.fade-leave-active {
     transition: opacity 0.3s ease;
 }
-.fade-enter-from, .fade-leave-to {
+
+.fade-enter-from,
+.fade-leave-to {
     opacity: 0;
 }
 
@@ -1400,7 +1511,7 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 .toggle-group button.active {
     background: white;
     color: #4f46e5;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* Heatmap Styles */
@@ -1409,7 +1520,8 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
     padding: 1rem 0;
 }
 
-.heatmap-header, .heatmap-row {
+.heatmap-header,
+.heatmap-row {
     display: grid;
     grid-template-columns: 120px repeat(24, 1fr);
     gap: 2px;
@@ -1551,7 +1663,14 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 }
 
 @keyframes slideIn {
-    from { opacity: 0; transform: translateX(-10px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 </style>

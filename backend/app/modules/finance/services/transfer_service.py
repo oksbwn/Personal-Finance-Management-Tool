@@ -31,7 +31,8 @@ class TransferService:
             type=TransactionType.DEBIT if pending.amount < 0 else TransactionType.CREDIT,
             is_transfer=True,
             external_id=pending.external_id,
-            source=pending.source
+            source=pending.source,
+            exclude_from_reports=pending.exclude_from_reports
         )
         
         # 2. Create Target Transaction (Mirror/Credit to destination account)
@@ -48,7 +49,8 @@ class TransferService:
             is_transfer=True,
             external_id=f"LINKED-{pending.external_id}" if pending.external_id else None,
             source=pending.source,
-            linked_transaction_id=source_txn.id
+            linked_transaction_id=source_txn.id,
+            exclude_from_reports=pending.exclude_from_reports
         )
         
         # Link source back to target

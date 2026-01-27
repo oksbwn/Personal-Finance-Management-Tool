@@ -74,6 +74,7 @@ CREATE TABLE transactions (
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -88,6 +89,7 @@ CREATE TABLE category_rules (
 	priority NUMERIC(5, 0) DEFAULT 0, 
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	to_account_id VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -116,6 +118,7 @@ CREATE TABLE recurring_transactions (
 	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
 	next_run_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
 	is_active BOOLEAN DEFAULT TRUE NOT NULL, 
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	last_run_date TIMESTAMP WITHOUT TIME ZONE, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
@@ -235,6 +238,7 @@ CREATE TABLE pending_transactions (
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)

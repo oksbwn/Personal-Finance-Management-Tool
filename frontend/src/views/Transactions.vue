@@ -38,6 +38,7 @@ const labelForm = ref({
     ref_id: '',
     category: 'Uncategorized',
     type: 'DEBIT',
+    exclude_from_reports: false,
     generate_pattern: true
 })
 
@@ -93,6 +94,7 @@ const showModal = ref(false)
 const isEditing = ref(false)
 const editingTxnId = ref<string | null>(null)
 const originalCategory = ref<string | null>(null)
+const originalExclude = ref(false)
 
 // Smart Categorization Modal
 const showSmartPrompt = ref(false)
@@ -102,7 +104,8 @@ const smartPromptData = ref({
     pattern: '',
     count: 0,
     createRule: true,
-    applyToSimilar: true
+    applyToSimilar: true,
+    excludeFromReports: false
 })
 
 // Pagination State
@@ -125,7 +128,8 @@ const defaultForm = {
     date: new Date().toISOString().slice(0, 16), // YYYY-MM-DDTHH:mm
     account_id: '',
     is_transfer: false,
-    to_account_id: ''
+    to_account_id: '',
+    exclude_from_reports: false
 }
 const form = ref({ ...defaultForm })
 
@@ -331,6 +335,7 @@ async function approveTriage(txn: any) {
             category: txn.category,
             is_transfer: txn.is_transfer,
             to_account_id: txn.to_account_id,
+            exclude_from_reports: txn.exclude_from_reports,
             create_rule: false // Rule creation now handled by prompt
         })
         notify.success("Transaction approved")
@@ -347,7 +352,8 @@ async function approveTriage(txn: any) {
                 pattern: pattern,
                 count: 0,
                 createRule: true,
-                applyToSimilar: false
+                applyToSimilar: false,
+                excludeFromReports: false
             }
             showSmartPrompt.value = true
         }
@@ -425,6 +431,7 @@ function startLabeling(msg: any) {
         ref_id: suggestedRef,
         category: 'Uncategorized',
         type: suggestedType,
+        exclude_from_reports: false,
         generate_pattern: true
     }
     showLabelForm.value = true
@@ -639,8 +646,10 @@ function openAddModal() {
 watch(() => form.value.is_transfer, (isTransfer) => {
     if (isTransfer) {
         form.value.category = 'Transfer'
+        form.value.exclude_from_reports = true
     } else if (form.value.category === 'Transfer') {
         form.value.category = '' // Reset if it was transfer
+        form.value.exclude_from_reports = false
     }
 })
 
@@ -648,6 +657,7 @@ function openEditModal(txn: any) {
     isEditing.value = true
     editingTxnId.value = txn.id
     originalCategory.value = txn.category
+    originalExclude.value = txn.exclude_from_reports || false
     form.value = {
         description: txn.description,
         category: txn.category,
@@ -655,7 +665,8 @@ function openEditModal(txn: any) {
         date: txn.date ? txn.date.slice(0, 16) : new Date().toISOString().slice(0, 16),
         account_id: txn.account_id,
         is_transfer: txn.is_transfer || false,
-        to_account_id: txn.transfer_account_id || ''
+        to_account_id: txn.transfer_account_id || '',
+        exclude_from_reports: txn.exclude_from_reports || false
     }
     showModal.value = true
 }
@@ -669,7 +680,8 @@ async function handleSubmit() {
             date: new Date(form.value.date).toISOString(),
             account_id: form.value.account_id,
             is_transfer: form.value.is_transfer,
-            to_account_id: form.value.to_account_id
+            to_account_id: form.value.to_account_id,
+            exclude_from_reports: form.value.exclude_from_reports
         }
 
         if (isEditing.value && editingTxnId.value) {
@@ -695,10 +707,29 @@ async function handleSubmit() {
                             pattern: pattern,
                             count: similarCount,
                             createRule: true,
-                            applyToSimilar: similarCount > 0
+                            applyToSimilar: similarCount > 0,
+                            excludeFromReports: false
                         }
                         showSmartPrompt.value = true
                     }
+                }
+            }
+
+            // --- Auto-Exclusion Rule Prompt ---
+            if (form.value.exclude_from_reports && !originalExclude.value && !form.value.is_transfer) {
+                const txn = transactions.value.find(t => t.id === editingTxnId.value)
+                if (txn) {
+                    const pattern = txn.recipient || txn.description
+                    smartPromptData.value = {
+                        txnId: editingTxnId.value,
+                        category: form.value.category || 'Uncategorized',
+                        pattern: pattern,
+                        count: 0,
+                        createRule: true,
+                        applyToSimilar: true,
+                        excludeFromReports: true
+                    }
+                    showSmartPrompt.value = true
                 }
             }
         } else {
@@ -720,7 +751,8 @@ async function handleSmartCategorize() {
             transaction_id: smartPromptData.value.txnId,
             category: smartPromptData.value.category,
             create_rule: smartPromptData.value.createRule,
-            apply_to_similar: smartPromptData.value.applyToSimilar
+            apply_to_similar: smartPromptData.value.applyToSimilar,
+            exclude_from_reports: smartPromptData.value.excludeFromReports
         })
 
         if (res.data.success) {
@@ -913,6 +945,9 @@ onMounted(() => {
                                         <span v-if="txn.is_transfer" class="ai-badge-mini"
                                             style="background: #ecfdf5; color: #059669; border-color: #059669;"
                                             title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
+                                        <span v-if="txn.exclude_from_reports" class="ai-badge-mini"
+                                            style="background: #fee2e2; color: #991b1b; border-color: #fca5a5;"
+                                            title="Excluded from reports and analytics">🚫 Excluded</span>
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
@@ -1093,11 +1128,22 @@ onMounted(() => {
                                         <div class="triage-input-group">
                                             <div class="toggle-control">
                                                 <label class="premium-switch">
-                                                    <input type="checkbox" v-model="txn.is_transfer">
+                                                    <input type="checkbox" v-model="txn.is_transfer"
+                                                        @change="txn.exclude_from_reports = txn.is_transfer">
                                                     <span class="premium-slider"></span>
                                                 </label>
                                                 <span class="toggle-text">{{ txn.is_transfer ? 'Internal Transfer' :
                                                     'Expense/Income' }}</span>
+                                            </div>
+
+                                            <div class="toggle-control">
+                                                <label class="premium-switch">
+                                                    <input type="checkbox" v-model="txn.exclude_from_reports">
+                                                    <span class="premium-slider"
+                                                        style="background-color: #fee2e2;"></span>
+                                                </label>
+                                                <span class="toggle-text" style="color: #991b1b;">Exclude from
+                                                    Reports</span>
                                             </div>
 
                                             <div class="select-container">
@@ -1294,13 +1340,13 @@ onMounted(() => {
                                 placeholder="Select Account" />
                         </div>
 
-                        <div class="form-layout-row">
-                            <div class="form-group half">
-                                <label class="form-label">Amount (+ Income, - Expense)</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Amount</label>
                                 <input type="number" step="0.01" v-model="form.amount" class="form-input" required
                                     placeholder="-50.00" />
                             </div>
-                            <div class="form-group half">
+                            <div class="form-group" style="margin-bottom: 0;">
                                 <label class="form-label">Date</label>
                                 <input type="datetime-local" v-model="form.date" class="form-input" required />
                             </div>
@@ -1315,30 +1361,50 @@ onMounted(() => {
                         <div class="form-group">
                             <div
                                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <label class="form-label" style="margin-bottom: 0;">Category</label>
-                                    <div v-if="currentCategoryBudget" class="budget-preview-tag"
-                                        :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
-                                        <span class="dot"></span>
-                                        {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                <label class="form-label" style="margin-bottom: 0;">Category & Options</label>
+                                <div v-if="currentCategoryBudget" class="budget-preview-tag"
+                                    :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
+                                    <span class="dot"></span>
+                                    {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                </div>
+                            </div>
+
+                            <!-- Options Panel -->
+                            <div
+                                style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.875rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.75rem; margin-bottom: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8125rem; font-weight: 600; color: #475569;">Is internal
+                                        transfer?</span>
+                                    <div class="toggle-control" style="min-width: unset;">
+                                        <label class="premium-switch">
+                                            <input type="checkbox" v-model="form.is_transfer">
+                                            <span class="premium-slider"></span>
+                                        </label>
+                                        <span class="toggle-text" style="min-width: 40px; text-align: right;">{{
+                                            form.is_transfer ? 'Yes' : 'No' }}</span>
                                     </div>
                                 </div>
-
-                                <div class="toggle-control"
-                                    style="transform: scale(0.9); transform-origin: right center;">
-                                    <label class="premium-switch">
-                                        <input type="checkbox" v-model="form.is_transfer">
-                                        <span class="premium-slider"></span>
-                                    </label>
-                                    <span class="toggle-text" style="margin-left: 0.5rem;">{{ form.is_transfer ?
-                                        'Internal Transfer' : 'Regular' }}</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8125rem; font-weight: 600; color: #991b1b;">Exclude from
+                                        reports?</span>
+                                    <div class="toggle-control" style="min-width: unset;">
+                                        <label class="premium-switch">
+                                            <input type="checkbox" v-model="form.exclude_from_reports">
+                                            <span class="premium-slider"
+                                                style="background-color: #fee2e2; border: 1px solid #fecaca;"></span>
+                                        </label>
+                                        <span class="toggle-text"
+                                            style="color: #991b1b; min-width: 40px; text-align: right;">{{
+                                                form.exclude_from_reports ? 'Yes' : 'No' }}</span>
+                                    </div>
                                 </div>
                             </div>
 
                             <div v-if="form.is_transfer">
+                                <label class="form-label">Linked Account</label>
                                 <CustomSelect v-model="form.to_account_id"
                                     :options="accountOptions.filter(a => a.value !== form.account_id)"
-                                    :placeholder="!form.amount || form.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'" />
+                                    :placeholder="!form.amount || form.amount < 0 ? 'To Account' : 'From Account'" />
                             </div>
                             <div v-else>
                                 <CustomSelect v-model="form.category" :options="categoryOptions"
@@ -1359,15 +1425,22 @@ onMounted(() => {
             </div>
 
 
-            <!-- Smart Categorization Prompt -->
+            <!-- Smart Categorization / Exclusion Prompt -->
             <div v-if="showSmartPrompt" class="modal-overlay-global">
                 <div class="modal-global" style="max-width: 450px;">
                     <div class="modal-header">
-                        <h2 class="modal-title">Smart Categorization 🧠</h2>
+                        <h2 class="modal-title">
+                            {{ smartPromptData.excludeFromReports ? 'Auto-Exclude Rule 🙈' : 'Smart Categorization 🧠'
+                            }}
+                        </h2>
                         <button class="btn-icon" @click="showSmartPrompt = false">✕</button>
                     </div>
                     <div style="padding: 1.5rem;">
-                        <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                        <p v-if="smartPromptData.excludeFromReports"
+                            style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                            You marked <strong>{{ smartPromptData.pattern }}</strong> as <strong>Hidden</strong>.
+                        </p>
+                        <p v-else style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
                             You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
                                 smartPromptData.category }}</strong>.
                         </p>
@@ -1375,14 +1448,24 @@ onMounted(() => {
                         <div class="smart-options">
                             <label class="smart-option-item" v-if="smartPromptData.count > 0">
                                 <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
-                                <span>Apply to <strong>{{ smartPromptData.count }}</strong> similar uncategorized
-                                    transactions</span>
+                                <span>
+                                    {{ smartPromptData.excludeFromReports ? 'Exclude' : 'Apply to' }}
+                                    <strong>{{ smartPromptData.count }}</strong> similar
+                                    {{ smartPromptData.excludeFromReports ? '' : 'uncategorized' }}
+                                    transactions
+                                </span>
                             </label>
 
                             <label class="smart-option-item">
                                 <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
-                                <span>Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
-                                    smartPromptData.category }}</strong> in future</span>
+                                <span v-if="smartPromptData.excludeFromReports">
+                                    Always <strong>hide</strong> transactions from <strong>{{ smartPromptData.pattern
+                                        }}</strong> in future
+                                </span>
+                                <span v-else>
+                                    Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
+                                        smartPromptData.category }}</strong> in future
+                                </span>
                             </label>
                         </div>
 
@@ -1555,6 +1638,12 @@ onMounted(() => {
                                 <label class="form-label">Category</label>
                                 <CustomSelect v-model="labelForm.category" :options="categoryOptions"
                                     placeholder="Assign Category" />
+                            </div>
+
+                            <div class="form-group check-group" style="margin-top: 0.5rem; background: #fef2f2;">
+                                <input type="checkbox" id="excludeReport" v-model="labelForm.exclude_from_reports">
+                                <label for="excludeReport" style="color: #991b1b;">Exclude from reports &
+                                    analytics</label>
                             </div>
 
                             <div class="form-group check-group" style="margin-top: 0.5rem;">

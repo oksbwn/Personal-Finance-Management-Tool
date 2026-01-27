@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 from decimal import Decimal
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from backend.app.modules.finance import models, schemas
 
 class BudgetService:
@@ -34,10 +34,48 @@ class BudgetService:
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_of_period,
             models.Transaction.date < end_of_period,
-            models.Transaction.is_transfer == False
+            models.Transaction.is_transfer == False,
+            models.Transaction.exclude_from_reports == False
         ).group_by(models.Transaction.category).all()
         
-        spending_map = {row.category: row.sum for row in spending_rows if row.category}
+        spending_map = {}
+        for row in spending_rows:
+            name = row.category or 'Uncategorized'
+            spending_map[name] = spending_map.get(name, Decimal(0)) + (row.sum or Decimal(0))
+        
+        # 2b. Helper to get excluded spending per category (for per-category display)
+        excluded_rows = db.query(
+            models.Transaction.category,
+            func.sum(models.Transaction.amount).label("sum")
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_of_period,
+            models.Transaction.date < end_of_period,
+            or_(models.Transaction.exclude_from_reports == True, models.Transaction.is_transfer == True)
+        ).group_by(models.Transaction.category).all()
+        
+        excluded_map = { (row.category or 'Uncategorized'): row.sum for row in excluded_rows }
+        
+        # Calculate total volume by polarity (not grouped) to catch transfers
+        excluded_spending = db.query(func.sum(models.Transaction.amount)).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_of_period,
+            models.Transaction.date < end_of_period,
+            or_(models.Transaction.exclude_from_reports == True, models.Transaction.is_transfer == True),
+            models.Transaction.amount < 0
+        ).scalar() or Decimal(0)
+        
+        excluded_income = db.query(func.sum(models.Transaction.amount)).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_of_period,
+            models.Transaction.date < end_of_period,
+            or_(models.Transaction.exclude_from_reports == True, models.Transaction.is_transfer == True),
+            models.Transaction.amount > 0
+        ).scalar() or Decimal(0)
+
+        excluded_spending = abs(excluded_spending)
+        
+        # 2c.
         
         budget_map = {b.category: b for b in budgets}
         category_map = {c.name: c for c in categories}
@@ -50,7 +88,7 @@ class BudgetService:
         
         # 1. Start with OVERALL if it exists
         overall_b = budget_map.get('OVERALL')
-        if overall_b or total_expense > 0:
+        if overall_b or total_expense > 0 or total_income > 0 or excluded_spending != 0 or excluded_income != 0:
             limit = overall_b.amount_limit if overall_b else None
             spent = total_expense
             results.append({
@@ -58,6 +96,8 @@ class BudgetService:
                 "amount_limit": limit,
                 "spent": spent,
                 "income": total_income,
+                "total_excluded": excluded_spending,
+                "excluded_income": excluded_income,
                 "remaining": limit - spent if limit else None,
                 "percentage": (float(spent) / float(limit)) * 100 if limit and limit > 0 else 0,
                 "id": overall_b.id if overall_b else None,
@@ -71,14 +111,15 @@ class BudgetService:
             })
 
         # 2. Iterate through all categories to show progress
-        # We want to include categories that have a budget OR have spending
-        active_cat_names = set(category_map.keys()) | set(spending_map.keys()) | set(budget_map.keys())
+        # We want to include categories that have a budget OR have spending (regular or excluded)
+        active_cat_names = set(category_map.keys()) | set(spending_map.keys()) | set(budget_map.keys()) | set(excluded_map.keys())
         active_cat_names.discard('OVERALL')
         
         for name in sorted(list(active_cat_names)):
             b = budget_map.get(name)
             c = category_map.get(name)
             value = spending_map.get(name, Decimal(0))
+            ex_value = excluded_map.get(name, Decimal(0))
             
             spent = abs(value) if value < 0 else Decimal(0)
             income = value if value > 0 else Decimal(0)
@@ -92,6 +133,7 @@ class BudgetService:
                 "amount_limit": limit,
                 "spent": spent,
                 "income": income,
+                "excluded": abs(ex_value),
                 "remaining": remaining,
                 "percentage": percentage,
                 "id": b.id if b else None,

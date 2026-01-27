@@ -174,7 +174,8 @@ class IngestionService:
                 location_name=None, # TODO: Reverse Geocoding
                 content_hash=message_hash,
                 is_transfer=is_transfer,
-                to_account_id=to_account_id
+                to_account_id=to_account_id,
+                exclude_from_reports=is_transfer
             )
             try:
                 db_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
@@ -197,6 +198,7 @@ class IngestionService:
                 external_id=parsed.ref_id, # Store the ref_id for triage too!
                 is_transfer=is_transfer,
                 to_account_id=to_account_id,
+                exclude_from_reports=is_transfer,
                 balance=parsed.balance,
                 credit_limit=parsed.credit_limit,
                 latitude=extra_data.get("latitude") if extra_data else None,

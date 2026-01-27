@@ -53,13 +53,16 @@ const activeTab = ref<'expense' | 'income'>('expense')
 const overallBudget = computed(() => budgets.value.find(b => b.category === 'OVERALL'))
 const categoryBudgets = computed(() => {
     const list = budgets.value.filter(b => b.category !== 'OVERALL')
-    if (activeTab.value === 'income') return list.filter(b => b.income > 0)
+    if (activeTab.value === 'income') return list.filter(b => b.income > 0 || b.excluded > 0)
     // Default to expense
-    return list.filter(b => b.spent > 0 || (b.amount_limit && b.amount_limit > 0))
+    return list.filter(b => b.spent > 0 || b.excluded > 0 || (b.amount_limit && b.amount_limit > 0))
 })
 
 const totalIncome = computed(() => {
-    return budgets.value.reduce((sum, b) => sum + Number(b.income || 0), 0)
+    if (overallBudget.value) return Number(overallBudget.value.income || 0)
+    return budgets.value
+        .filter(b => b.category !== 'OVERALL')
+        .reduce((sum, b) => sum + Number(b.income || 0), 0)
 })
 
 const totalSpent = computed(() => {
@@ -344,6 +347,23 @@ onMounted(() => {
                             {{ formatAmount(totalIncome - totalSpent) }}
                         </div>
                     </div>
+                    <div v-if="overallBudget?.total_excluded || overallBudget?.excluded_income"
+                        class="mini-stat-card glass" style="border-left: 4px solid #94a3b8;">
+                        <div class="stat-top">
+                            <span class="stat-label">Excluded Items</span>
+                            <span class="stat-icon-bg gray text-muted" style="filter: grayscale(1);">🚫</span>
+                        </div>
+                        <div class="stat-value"
+                            style="color: #64748b; font-size: 1.1rem; display: flex; flex-direction: column; gap: 2px;">
+                            <span v-if="overallBudget.total_excluded > 0" title="Excluded Expenses">
+                                {{ formatAmount(overallBudget.total_excluded) }} Out
+                            </span>
+                            <span v-if="overallBudget.excluded_income > 0" style="color: #10b981; font-size: 0.9rem;"
+                                title="Excluded Income">
+                                +{{ formatAmount(overallBudget.excluded_income) }} In
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="section-header-row">
@@ -378,7 +398,7 @@ onMounted(() => {
                         </div>
 
                         <!-- Activity Breakdown -->
-                        <div class="activity-row-premium" v-if="b.spent > 0 || b.income > 0">
+                        <div class="activity-row-premium" v-if="b.spent > 0 || b.income > 0 || b.excluded > 0">
                             <div class="act-item income" v-if="b.income > 0">
                                 <span class="act-label">Received</span>
                                 <span class="act-val success">+{{ formatAmount(b.income) }}</span>
@@ -386,6 +406,12 @@ onMounted(() => {
                             <div class="act-item expense" v-if="b.spent > 0">
                                 <span class="act-label">Spent</span>
                                 <span class="act-val">{{ formatAmount(b.spent) }}</span>
+                            </div>
+                            <div class="act-item excluded" v-if="b.excluded > 0">
+                                <span class="act-label">Excluded</span>
+                                <span class="act-val" style="color: #94a3b8; font-size: 0.85rem;">🚫 {{
+                                    formatAmount(b.excluded)
+                                    }}</span>
                             </div>
                         </div>
 

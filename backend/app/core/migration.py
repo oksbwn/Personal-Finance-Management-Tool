@@ -143,6 +143,12 @@ def run_auto_migrations(engine: Engine):
             );
             """))
 
+            # 10. Exclude from reports flag
+            safe_add_column("transactions", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("pending_transactions", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("recurring_transactions", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("category_rules", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
+
             # Explicitly commit the transaction!
             connection.commit()
             print("Auto-migration complete.")

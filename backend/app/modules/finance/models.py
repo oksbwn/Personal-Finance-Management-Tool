@@ -64,6 +64,7 @@ class Transaction(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
+    exclude_from_reports = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     linked_transaction = relationship("Transaction", 
@@ -98,6 +99,7 @@ class CategoryRule(Base):
     priority = Column(Numeric(5,0), default=0) # Higher priority runs first
     is_transfer = Column(Boolean, default=False, nullable=False)
     to_account_id = Column(String, nullable=True) # Destination Account ID if it's a transfer rule
+    exclude_from_reports = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class IgnoredSuggestion(Base):
@@ -152,6 +154,7 @@ class RecurringTransaction(Base):
     next_run_date = Column(DateTime, nullable=False, index=True)
     
     is_active = Column(Boolean, default=True, nullable=False)
+    exclude_from_reports = Column(Boolean, default=False, nullable=False)
     last_run_date = Column(DateTime, nullable=True) # To track when it last ran
     created_at = Column(DateTime, default=datetime.utcnow)
 
