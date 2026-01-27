@@ -185,6 +185,12 @@ export const financeApi = {
         params: { user_id: userId }
     }),
     getNav: (schemeCode: string) => apiClient.get(`/finance/mutual-funds/${schemeCode}/nav`),
+    getLoans: () => apiClient.get('/finance/loans'),
+    getLoanDetails: (id: string) => apiClient.get(`/finance/loans/${id}`),
+    getLoanInsights: (id: string) => apiClient.post(`/finance/loans/${id}/insights`, {}),
+    getPortfolioInsights: () => apiClient.post('/finance/loans/portfolio/insights', {}),
+    createLoan: (data: any) => apiClient.post('/finance/loans', data),
+    recordLoanRepayment: (loanId: string, data: any) => apiClient.post(`/finance/loans/${loanId}/repayment`, data),
 }
 
 export const aiApi = {
