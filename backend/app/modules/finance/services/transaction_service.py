@@ -195,10 +195,32 @@ class TransactionService:
         if is_transfer_update is True:
             db_txn.is_transfer = True
             db_txn.exclude_from_reports = True
-            if not to_account_id and not db_txn.linked_transaction_id:
-                 pass 
+            
+            # Case A: User selected an EXISTING transaction to link (Manual Match)
+            if update_data.get('linked_transaction_id'):
+                # 1. Unlink any old one
+                if db_txn.linked_transaction_id:
+                     old_linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
+                     # If the old one was auto-generated (same amount, diff sign, transfer category), maybe delete? 
+                     # For safety, let's just unlink it. User can delete manually if needed.
+                     if old_linked:
+                        old_linked.linked_transaction_id = None
+                        db.add(old_linked)
 
-            if to_account_id:
+                # 2. Link the new target
+                target_id = update_data['linked_transaction_id']
+                target_txn = db.query(models.Transaction).filter(models.Transaction.id == target_id).first()
+                
+                if target_txn:
+                    db_txn.linked_transaction_id = target_txn.id
+                    target_txn.linked_transaction_id = db_txn.id
+                    target_txn.is_transfer = True
+                    target_txn.category = "Transfer"
+                    target_txn.exclude_from_reports = True # Ensure both are hidden
+                    db.add(target_txn)
+
+            # Case B: User selected an ACCOUNT to transfer to (Auto Create)
+            elif to_account_id:
                 if db_txn.linked_transaction_id:
                      old_linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
                      if old_linked: db.delete(old_linked)
@@ -226,8 +248,17 @@ class TransactionService:
         elif is_transfer_update is False:
             db_txn.is_transfer = False
             if db_txn.linked_transaction_id:
+                # If we are un-marking transfer, check if the linked txn was auto-generated
                 linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
-                if linked: db.delete(linked)
+                if linked:
+                    # HEURISTIC: If linked txn is also "Transfer" and "Hidden", unlink it. 
+                    # If it looks like a manual match, just unlink. 
+                    # If it looks like auto-gen, maybe delete? 
+                    # Safest is just to unlink and let user clean up. 
+                    linked.linked_transaction_id = None
+                    linked.is_transfer = False # Should we reset? Maybe.
+                    db.add(linked)
+
                 db_txn.linked_transaction_id = None
         
         for key, value in update_data.items():

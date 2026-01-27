@@ -78,6 +78,7 @@ class TransactionUpdate(BaseModel):
     amount: Optional[Decimal] = None
     is_transfer: Optional[bool] = None
     to_account_id: Optional[str] = None
+    linked_transaction_id: Optional[str] = None
     exclude_from_reports: Optional[bool] = None
 
 class Transaction(TransactionBase):

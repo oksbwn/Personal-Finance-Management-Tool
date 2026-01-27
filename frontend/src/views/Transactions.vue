@@ -95,6 +95,9 @@ const isEditing = ref(false)
 const editingTxnId = ref<string | null>(null)
 const originalCategory = ref<string | null>(null)
 const originalExclude = ref(false)
+const potentialMatches = ref<any[]>([])
+const isSearchingMatches = ref(false)
+const matchesSearched = ref(false)
 
 // Smart Categorization Modal
 const showSmartPrompt = ref(false)
@@ -129,6 +132,7 @@ const defaultForm = {
     account_id: '',
     is_transfer: false,
     to_account_id: '',
+    linked_transaction_id: '',
     exclude_from_reports: false
 }
 const form = ref({ ...defaultForm })
@@ -638,7 +642,10 @@ function openAddModal() {
         date: new Date().toISOString().slice(0, 16),
         is_transfer: false,
         to_account_id: '',
+        linked_transaction_id: '',
     }
+    potentialMatches.value = []
+    matchesSearched.value = false
     showModal.value = true
 }
 
@@ -666,8 +673,11 @@ function openEditModal(txn: any) {
         account_id: txn.account_id,
         is_transfer: txn.is_transfer || false,
         to_account_id: txn.transfer_account_id || '',
+        linked_transaction_id: txn.linked_transaction_id || '',
         exclude_from_reports: txn.exclude_from_reports || false
     }
+    potentialMatches.value = []
+    matchesSearched.value = false
     showModal.value = true
 }
 
@@ -681,6 +691,7 @@ async function handleSubmit() {
             account_id: form.value.account_id,
             is_transfer: form.value.is_transfer,
             to_account_id: form.value.to_account_id,
+            linked_transaction_id: form.value.linked_transaction_id,
             exclude_from_reports: form.value.exclude_from_reports
         }
 
@@ -789,6 +800,57 @@ watch(searchQuery, () => {
     }, 400)
 })
 
+// Match Finding Logic
+async function findMatches() {
+    if (!form.value.to_account_id || !form.value.amount || !form.value.date) return
+
+    isSearchingMatches.value = true
+    matchesSearched.value = false
+    try {
+        const txnDate = new Date(form.value.date)
+        const startDate = new Date(txnDate)
+        startDate.setDate(startDate.getDate() - 3)
+        const endDate = new Date(txnDate)
+        endDate.setDate(endDate.getDate() + 3)
+
+        const res = await financeApi.getTransactions(
+            form.value.to_account_id,
+            1,
+            50, // limit
+            startDate.toISOString().slice(0, 10),
+            endDate.toISOString().slice(0, 10)
+        )
+
+        // Filter for opposite amount (with tolerance)
+        // If current txn is -100 (sending), look for +100 (receiving)
+        // If current txn is +100 (receiving), look for -100 (sending)
+        const targetAmount = -Number(form.value.amount)
+
+        potentialMatches.value = res.data.items.filter((t: any) => {
+            // Basic tolerance check for float issues or fees
+            return Math.abs(t.amount - targetAmount) < 1.0 &&
+                // Don't link to self if something weird happens
+                t.id !== editingTxnId.value &&
+                // Don't link if already matched to someone else
+                (!t.linked_transaction_id || t.linked_transaction_id === editingTxnId.value)
+        })
+
+        matchesSearched.value = true
+    } catch (e) {
+        console.error("Match search failed", e)
+    } finally {
+        isSearchingMatches.value = false
+    }
+}
+
+function selectMatch(match: any) {
+    if (form.value.linked_transaction_id === match.id) {
+        form.value.linked_transaction_id = '' // Deselect
+    } else {
+        form.value.linked_transaction_id = match.id
+    }
+}
+
 onMounted(() => {
     fetchData()
     fetchTriage() // Pre-fetch count
@@ -807,7 +869,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                        }}</span>
+                            }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -950,7 +1012,7 @@ onMounted(() => {
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                            }}</span>
+                                                }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
@@ -1244,7 +1306,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                            }}</span>
+                                        }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
@@ -1404,6 +1466,38 @@ onMounted(() => {
                                 <CustomSelect v-model="form.to_account_id"
                                     :options="accountOptions.filter(a => a.value !== form.account_id)"
                                     :placeholder="!form.amount || form.amount < 0 ? 'To Account' : 'From Account'" />
+
+                                <!-- Match Finder -->
+                                <div v-if="form.to_account_id && form.amount"
+                                    class="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-semibold uppercase text-gray-500">Transaction
+                                            Matcher</span>
+                                        <button type="button" @click="findMatches"
+                                            class="text-xs text-blue-600 hover:text-blue-800"
+                                            :disabled="isSearchingMatches">
+                                            {{ isSearchingMatches ? 'Searching...' : 'Find Matches 🔍' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="potentialMatches.length > 0" class="space-y-2">
+                                        <div v-for="match in potentialMatches" :key="match.id"
+                                            class="p-2 border rounded cursor-pointer text-sm bg-white hover:bg-blue-50 transition-colors"
+                                            :class="form.linked_transaction_id === match.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'"
+                                            @click="selectMatch(match)">
+                                            <div class="flex justify-between font-medium">
+                                                <span>{{ new Date(match.date).toLocaleDateString() }}</span>
+                                                <span :class="match.amount > 0 ? 'text-green-600' : 'text-red-600'">
+                                                    {{ formatAmount(match.amount) }}
+                                                </span>
+                                            </div>
+                                            <div class="text-gray-600 truncate">{{ match.description }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else-if="matchesSearched" class="text-xs text-center text-gray-500 py-2">
+                                        No matches found around this date.
+                                    </div>
+                                </div>
                             </div>
                             <div v-else>
                                 <CustomSelect v-model="form.category" :options="categoryOptions"
