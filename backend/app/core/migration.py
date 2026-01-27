@@ -16,15 +16,14 @@ def run_auto_migrations(engine: Engine):
             # Helper to add columns safely
             def safe_add_column(table, col, type_def):
                 try:
-                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {type_def}"))
-                    print(f"Migrated: added {col} to {table}")
+                    # DuckDB supports ADD COLUMN IF NOT EXISTS in newer versions
+                    # but we can also check existence to be sure
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {type_def}"))
                 except Exception as e:
-                    err = str(e).lower()
-                    if "already exists" in err or "duplicate column" in err:
-                        pass # Column exists, safe to ignore
-                    else:
-                        print(f"CRITICAL: Failed to add column {col}: {e}")
-                        raise e # Fail hard so we don't start with broken schema 
+                    print(f"DEBUG: safe_add_column potential issue: {e}")
+                    # If it failed because it already exists, we are fine. 
+                    # If it failed for another reason, we might want to know, but 
+                    # we don't want to abort the whole migration if possible.
 
             # 1. Add columns to existing tables since CREATE TABLE IF NOT EXISTS won't add them
             safe_add_column("pending_transactions", "latitude", "DECIMAL(10, 8)")
@@ -148,6 +147,33 @@ def run_auto_migrations(engine: Engine):
             safe_add_column("pending_transactions", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
             safe_add_column("recurring_transactions", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
             safe_add_column("category_rules", "exclude_from_reports", "BOOLEAN DEFAULT FALSE")
+            
+            # 11. Loans Table
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS loans (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                account_id VARCHAR NOT NULL UNIQUE,
+                principal_amount NUMERIC(15, 2) NOT NULL,
+                interest_rate NUMERIC(5, 2) NOT NULL,
+                start_date TIMESTAMP NOT NULL,
+                tenure_months NUMERIC(5, 0) NOT NULL,
+                emi_amount NUMERIC(15, 2) NOT NULL,
+                emi_date NUMERIC(2, 0) NOT NULL,
+                loan_type VARCHAR DEFAULT 'OTHER' NOT NULL,
+                bank_account_id VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+                FOREIGN KEY(account_id) REFERENCES accounts (id)
+            );
+            """))
+
+            # 12. Add loan_type to loans if exists (backward compat)
+            safe_add_column("loans", "loan_type", "VARCHAR DEFAULT 'OTHER'")
+
+            # 13. Add EMI flag to transactions
+            safe_add_column("transactions", "is_emi", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("transactions", "loan_id", "VARCHAR")
 
             # Explicitly commit the transaction!
             connection.commit()

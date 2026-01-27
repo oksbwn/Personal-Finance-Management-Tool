@@ -75,9 +75,12 @@ CREATE TABLE transactions (
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
+	is_emi BOOLEAN DEFAULT FALSE NOT NULL,
+	loan_id VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+	FOREIGN KEY(loan_id) REFERENCES loans (id)
 );
 
 CREATE TABLE category_rules (
@@ -354,3 +357,23 @@ CREATE TABLE ignored_patterns (
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_ignored_patterns_tenant ON ignored_patterns (tenant_id);
+CREATE TABLE loans (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	account_id VARCHAR NOT NULL, 
+	principal_amount NUMERIC(15, 2) NOT NULL, 
+	interest_rate NUMERIC(5, 2) NOT NULL, 
+	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	tenure_months NUMERIC(5, 0) NOT NULL, 
+	emi_amount NUMERIC(15, 2) NOT NULL, 
+	emi_date NUMERIC(2, 0) NOT NULL, 
+	bank_account_id VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
+	FOREIGN KEY(account_id) REFERENCES accounts (id),
+	UNIQUE(account_id)
+);
+CREATE INDEX ix_loans_tenant ON loans (tenant_id);
+;
+ALTER TABLE loans ADD COLUMN loan_type VARCHAR DEFAULT 'OTHER' NOT NULL;
