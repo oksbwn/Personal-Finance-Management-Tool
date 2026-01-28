@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 import json
@@ -19,21 +20,18 @@ class GeminiParser:
         if not self.config or not self.config.api_key_enc:
             return None
 
-        # Configure GenAI
-        genai.configure(api_key=self.config.api_key_enc)
+        # New google-genai client
+        client = genai.Client(api_key=self.config.api_key_enc)
         
-        generation_config = {
-            "temperature": 0.1,
-            "top_p": 1,
-            "top_k": 32,
-            "max_output_tokens": 1024,
-            "response_mime_type": "application/json",
-        }
-
-        model = genai.GenerativeModel(
-            model_name=self.config.model_name or "gemini-1.5-flash",
-            generation_config=generation_config,
+        config = types.GenerateContentConfig(
+            temperature=0.1,
+            top_p=1,
+            top_k=32,
+            max_output_tokens=1024,
+            response_mime_type="application/json",
         )
+
+        model_id = self.config.model_name or "gemini-1.5-flash"
 
         # Standard Prompt
         # We can eventually load this from self.config.prompts_json if specialized
@@ -61,7 +59,11 @@ class GeminiParser:
         """
 
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt,
+                config=config
+            )
             text = response.text.strip()
             # Clean potential markdown code blocks
             if text.startswith("```json"):

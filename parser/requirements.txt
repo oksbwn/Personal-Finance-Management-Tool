@@ -5,9 +5,11 @@ pydantic
 duckdb
 sqlalchemy
 pandas
-google-generativeai
+google-genai
 python-dotenv
 apscheduler
 openpyxl
 phonenumbers
 casparser
+rapidfuzz
+requests
