@@ -11,14 +11,14 @@ class TestParserMicroservice(unittest.TestCase):
     def setUp(self):
         # Ensure service is up
         try:
-            resp = requests.get(f"{BASE_URL}/health")
+            resp = requests.get(f"{BASE_URL}/v1/health")
             if resp.status_code != 200:
                 self.fail("Parser service is not healthy")
         except requests.exceptions.ConnectionError:
             self.fail("Parser service is not running on port 8001")
 
     def test_01_health(self):
-        resp = requests.get(f"{BASE_URL}/health")
+        resp = requests.get(f"{BASE_URL}/v1/health")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
 
