@@ -187,6 +187,28 @@ class AIService:
     }
 
     @classmethod
+    def get_settings(cls, db: Session, tenant_id: str) -> Optional[Dict[str, Any]]:
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id
+        ).first()
+        if not config: return None
+        return {
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "is_enabled": config.is_enabled,
+            "prompts": json.loads(config.prompts_json or "{}"),
+            "has_api_key": bool(config.api_key)
+        }
+
+    @classmethod
+    def get_raw_api_key(cls, db: Session, tenant_id: str) -> Optional[str]:
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id
+        ).first()
+        return config.api_key if config else None
+
+
+    @classmethod
     def parse_with_ai(cls, db: Session, tenant_id: str, content: str, task: str = "parsing") -> Optional[ParsedTransaction]:
         # 1. Get Config
         config = db.query(ingestion_models.AIConfiguration).filter(

@@ -38,3 +38,12 @@ class User(Base):
     scopes = Column(String, nullable=True) 
 
     tenant = relationship("Tenant", back_populates="users")
+
+class TenantSetting(Base):
+    __tablename__ = "tenant_settings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    key = Column(String, nullable=False, index=True) # e.g. "parser_service_url"
+    value = Column(String, nullable=True) # e.g. "http://localhost:8001/v1"
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

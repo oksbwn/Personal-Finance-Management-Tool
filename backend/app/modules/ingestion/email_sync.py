@@ -7,7 +7,7 @@ from email.utils import parsedate_to_datetime
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from backend.app.modules.ingestion import models as ingestion_models
-from backend.app.modules.ingestion.registry import EmailParserRegistry
+# from backend.app.modules.ingestion.registry import EmailParserRegistry
 from backend.app.modules.ingestion.services import IngestionService
 
 class EmailSyncService:
@@ -138,25 +138,56 @@ class EmailSyncService:
                                 stats["errors"].append(f"Skipped noise: {subject[:30]}...")
                                 continue
 
-                            # Parse via Registry
-                            parsed = EmailParserRegistry.parse(subject, body, db, tenant_id, email_date)
-                            if parsed:
-                                result = IngestionService.process_transaction(db, tenant_id, parsed)
-                                status = result.get("status")
-                                
-                                if status in ["success", "triaged"]:
-                                    stats["processed"] += 1
-                                elif result.get("deduplicated"):
-                                    pass
-                                else:
+                            # Parse via External Microservice
+                            from backend.app.modules.ingestion.parser_service import ExternalParserService
+                            from backend.app.modules.ingestion.base import ParsedTransaction
+
+                            sender_id = msg.get("From")
+                            parser_response = ExternalParserService.parse_email(subject, body, sender_id)
+                            
+                            if parser_response and parser_response.get("status") == "processed":
+                                results = parser_response.get("results", [])
+                                if not results:
                                     stats["failed"] += 1
-                                    reason = result.get('message') or result.get('reason') or "Unknown Error"
-                                    err_msg = f"Ingestion failed for '{subject[:30]}...': {reason}"
-                                    stats["errors"].append(err_msg)
+                                    stats["errors"].append(f"No transactions found in email: {subject[:30]}")
+                                    continue
+                                    
+                                for item in results:
+                                    t = item.get("transaction")
+                                    if not t: continue
+                                    
+                                    # Map to ParsedTransaction
+                                    parsed = ParsedTransaction(
+                                        amount=t.get("amount"),
+                                        date=datetime.fromisoformat(t.get("date").replace("Z", "+00:00")),
+                                        description=t.get("description") or subject,
+                                        type=t.get("type"),
+                                        account_mask=t.get("account", {}).get("mask"),
+                                        recipient=t.get("recipient") or t.get("merchant", {}).get("cleaned"),
+                                        category=t.get("category"),
+                                        ref_id=t.get("ref_id"),
+                                        balance=t.get("balance"),
+                                        credit_limit=t.get("credit_limit"),
+                                        raw_message=t.get("raw_message") or body,
+                                        source="EMAIL",
+                                        is_ai_parsed=item.get("metadata", {}).get("parser_used") == "AI"
+                                    )
+                                    
+                                    result = IngestionService.process_transaction(db, tenant_id, parsed)
+                                    status = result.get("status")
+                                    
+                                    if status in ["success", "triaged"]:
+                                        stats["processed"] += 1
+                                    elif result.get("deduplicated"):
+                                        pass
+                                    else:
+                                        stats["failed"] += 1
+                                        reason = result.get('message') or result.get('reason') or "Unknown Error"
+                                        err_msg = f"Ingestion failed for '{subject[:30]}...': {reason}"
+                                        stats["errors"].append(err_msg)
                             else:
                                 stats["failed"] += 1
-                                # Log why it was skipped (now without cap for terminal debugging)
-                                err_msg = f"No parser matched for: {subject[:40]}..."
+                                err_msg = f"External parser failed for: {subject[:30]}..."
                                 stats["errors"].append(err_msg)
                                 
                                 # --- INTERACTIVE TRAINING CAPTURE ---

@@ -17,30 +17,9 @@ from backend.app.modules.ingestion.services import IngestionService
 from backend.app.modules.ingestion import models as ingestion_models
 from backend.app.modules.ingestion.pattern_service import PatternGenerator
 from backend.app.modules.ingestion.email_sync import EmailSyncService
-from backend.app.modules.ingestion.registry import SmsParserRegistry, EmailParserRegistry
-from backend.app.modules.ingestion.parsers.hdfc import HdfcSmsParser, HdfcEmailParser
-from backend.app.modules.ingestion.parsers.generic import GenericSmsParser, GenericEmailParser
-from backend.app.modules.ingestion.parsers.icici import IciciSmsParser, IciciEmailParser
-from backend.app.modules.ingestion.parsers.axis import AxisSmsParser, AxisEmailParser
-from backend.app.modules.ingestion.parsers.sbi import SbiSmsParser, SbiEmailParser
-from backend.app.modules.ingestion.parsers.kotak import KotakSmsParser, KotakEmailParser
-from backend.app.modules.ingestion.parsers.universal_parser import UniversalParser
+# Legacy parsers removed in favor of ExternalParserService
 
 router = APIRouter(tags=["Ingestion"])
-
-# Register Parsers
-SmsParserRegistry.register(HdfcSmsParser())
-SmsParserRegistry.register(GenericSmsParser())
-SmsParserRegistry.register(IciciSmsParser())
-SmsParserRegistry.register(AxisSmsParser())
-SmsParserRegistry.register(SbiSmsParser())
-SmsParserRegistry.register(KotakSmsParser())
-EmailParserRegistry.register(HdfcEmailParser())
-EmailParserRegistry.register(GenericEmailParser())
-EmailParserRegistry.register(IciciEmailParser())
-EmailParserRegistry.register(AxisEmailParser())
-EmailParserRegistry.register(SbiEmailParser())
-EmailParserRegistry.register(KotakEmailParser())
 
 
 class SmsPayload(BaseModel):
@@ -53,6 +32,7 @@ class SmsPayload(BaseModel):
 class EmailPayload(BaseModel):
     subject: str
     body: str
+    sender: Optional[str] = "Manual Input"
 
 class EmailSyncPayload(BaseModel):
     imap_server: str = "imap.gmail.com"
@@ -142,10 +122,13 @@ def ingest_sms(
         device.last_seen_at = datetime.utcnow()
         db.commit()
 
-    # 2. Parsing
-    parsed = SmsParserRegistry.parse(db, str(current_user.tenant_id), payload.sender, payload.message)
+    # 2. Parsing (Call External Microservice)
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    from backend.app.modules.ingestion.base import ParsedTransaction
+
+    parser_response = ExternalParserService.parse_sms(payload.sender, payload.message)
     
-    if not parsed:
+    if not parser_response or parser_response.get("status") != "processed":
         # Promotion to UnparsedMessage for interactive training
         IngestionService.capture_unparsed(
             db, 
@@ -159,8 +142,8 @@ def ingest_sms(
             str(current_user.tenant_id), 
             "sms_ingestion", 
             "warning", 
-            "SMS message captured for learning/training (Failed to parse).", 
-            data={"sender": payload.sender, "message": payload.message},
+            "External parser failed or message captured for learning.", 
+            data={"sender": payload.sender, "message": payload.message, "parser_status": parser_response.get("status") if parser_response else "offline"},
             device_id=payload.device_id
         )
         return {
@@ -168,30 +151,52 @@ def ingest_sms(
             "message": "SMS message captured for learning/training."
         }
 
-    # 3. Add Location Data to Parsed Object (Monkey patch or update class)
-    # We'll pass it to process_transaction separately or attach it
-    extra_data = {
-        "latitude": payload.latitude,
-        "longitude": payload.longitude,
-        "device_id": payload.device_id
-    }
+    # 3. Process Multiple Results (if any)
+    results = []
+    # The external parser returns IngestionResult: { status: str, results: List[ParsedItem] }
+    for item in parser_response.get("results", []):
+        t = item.get("transaction")
+        if not t: continue
         
-    result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed, extra_data=extra_data)
-    
+        # Map to ParsedTransaction
+        parsed = ParsedTransaction(
+            amount=t.get("amount"),
+            date=datetime.fromisoformat(t.get("date").replace("Z", "+00:00")),
+            description=t.get("description") or t.get("raw_message") or payload.message,
+            type=t.get("type"),
+            account_mask=t.get("account", {}).get("mask"),
+            recipient=t.get("recipient") or t.get("merchant", {}).get("cleaned"),
+            category=t.get("category"),
+            ref_id=t.get("ref_id"),
+            balance=t.get("balance"),
+            credit_limit=t.get("credit_limit"),
+            raw_message=t.get("raw_message") or payload.message,
+            source="SMS",
+            is_ai_parsed=item.get("metadata", {}).get("parser_used") == "AI"
+        )
+        
+        extra_data = {
+            "latitude": payload.latitude,
+            "longitude": payload.longitude,
+            "device_id": payload.device_id
+        }
+            
+        proc_result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed, extra_data=extra_data)
+        results.append(proc_result)
+
     IngestionService.log_event(
         db, 
         str(current_user.tenant_id), 
         "sms_ingestion", 
         "success", 
-        f"Processed SMS from {payload.sender}: {result.get('status')}", 
-        data={"sender": payload.sender, "result": result.get('status')},
+        f"Processed SMS from {payload.sender} via External Parser", 
+        data={"sender": payload.sender, "results_count": len(results)},
         device_id=payload.device_id
     )
     
     return {
         "status": "processed",
-        "parsed_data": parsed,
-        "result": result
+        "results": results
     }
 
 @router.post("/email")
@@ -203,25 +208,50 @@ def ingest_email(
     """
     Ingest a raw Email, parse it, and SAVE the transaction if account matches.
     """
-    parsed = EmailParserRegistry.parse(payload.subject, payload.body)
+    # 2. Parsing (Call External Microservice)
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    from backend.app.modules.ingestion.base import ParsedTransaction
+
+    parser_response = ExternalParserService.parse_email(payload.subject, payload.body, payload.sender or "Manual Input")
     
-    if not parsed:
+    if not parser_response or parser_response.get("status") != "processed":
         IngestionService.log_event(
             db, 
             str(current_user.tenant_id), 
             "email_ingestion", 
             "error", 
-            "Could not parse Email content", 
-            data={"subject": payload.subject}
+            "External parser failed for Email content", 
+            data={"subject": payload.subject, "parser_status": parser_response.get("status") if parser_response else "offline"}
         )
-        raise HTTPException(status_code=422, detail="Could not parse Email content")
+        raise HTTPException(status_code=422, detail="External parser failed for Email content")
         
-    result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
+    results = []
+    for item in parser_response.get("results", []):
+        t = item.get("transaction")
+        if not t: continue
+        
+        parsed = ParsedTransaction(
+            amount=t.get("amount"),
+            date=datetime.fromisoformat(t.get("date").replace("Z", "+00:00")),
+            description=t.get("description") or payload.subject,
+            type=t.get("type"),
+            account_mask=t.get("account", {}).get("mask"),
+            recipient=t.get("recipient") or t.get("merchant", {}).get("cleaned"),
+            category=t.get("category"),
+            ref_id=t.get("ref_id"),
+            balance=t.get("balance"),
+            credit_limit=t.get("credit_limit"),
+            raw_message=t.get("raw_message") or payload.body,
+            source="EMAIL",
+            is_ai_parsed=item.get("metadata", {}).get("parser_used") == "AI"
+        )
+        
+        proc_result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
+        results.append(proc_result)
     
     return {
         "status": "processed",
-        "parsed_data": parsed,
-        "result": result
+        "results": results
     }
 
 @router.post("/email/sync")
@@ -793,6 +823,35 @@ def bulk_dismiss_training(
     ).delete(synchronize_session=False)
     db.commit()
     return {"status": "deleted", "count": count}
+
+@router.post("/ai/sync-to-parser")
+def sync_ai_to_parser(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Push the main app's AI configuration to the parser microservice.
+    """
+    from backend.app.modules.ingestion.ai_service import AIService
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    
+    tenant_id = str(current_user.tenant_id)
+    settings_data = AIService.get_settings(db, tenant_id)
+    if not settings_data:
+        raise HTTPException(status_code=404, detail="AI Settings not found")
+    
+    raw_key = AIService.get_raw_api_key(db, tenant_id)
+    
+    success = ExternalParserService.sync_ai_config(
+        api_key=raw_key or "",
+        model_name=settings_data.get("model_name", "gemini-pro"),
+        is_enabled=settings_data.get("is_enabled", False)
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to sync with parser microservice")
+    
+    return {"status": "synced"}
 
 # --- Auditing / Events ---
 
