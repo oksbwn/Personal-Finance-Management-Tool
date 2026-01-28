@@ -11,9 +11,12 @@ services:
     ports:
       - "80:80"
       - "8000:8000"
+      - "8001:8001"
     volumes:
       - /docker/volumes/wealthfam/data:/data
-    environment:
-      - DATABASE_URL=duckdb:////data/family_finance_v3.duckdb
-      # - PORT=8080# Example: Override default port 80
     restart: unless-stopped
+    environment:
+      - APP_DATABASE_URL=duckdb:////data/family_finance_v3.duckdb
+      - PARSER_SERVICE_URL=http://localhost:8001/v1
+      - PARSER_DATABASE_URL=duckdb:////data/ingestion_engine_parser.duckdb
+      - SECRET_KEY=${SECRET_KEY:-CHANGE_THIS_IN_PROD}

@@ -30,13 +30,16 @@ RUN printf "#!/bin/bash\nnginx\npython run_backend.py\n" > entrypoint.sh && chmo
 # 4. Application Code (Changes frequently)
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
 COPY backend/ ./backend/
+COPY parser/ ./parser/
 COPY run_backend.py ./
 COPY version.json ./
 
 # Environment variables
-ENV DATABASE_URL="duckdb:////data/family_finance_v3.duckdb"
+ENV APP_DATABASE_URL="duckdb:////data/family_finance_v3.duckdb"
+ENV PARSER_SERVICE_URL="http://localhost:8001/v1"
+ENV PARSER_DATABASE_URL="duckdb:////data/ingestion_engine_parser.duckdb"
 ENV PYTHONPATH="/app"
 
-EXPOSE 80
+EXPOSE 80 8000 8001
 
 ENTRYPOINT ["./entrypoint.sh"]
