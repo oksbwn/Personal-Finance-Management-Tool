@@ -1,13 +1,19 @@
 from sqlalchemy.orm import Session
 from typing import Optional, Any
-from parser.schemas.transaction import IngestionResult, ParsedItem, Transaction
 from parser.core.classifier import FinancialClassifier
 from parser.parsers.registry import ParserRegistry
 from parser.db.models import RequestLog
 import hashlib
 import json
 from datetime import datetime, timedelta
+from rapidfuzz import fuzz
 from decimal import Decimal
+from parser.schemas.transaction import Transaction, IngestionResult, ParsedItem, AccountInfo, MerchantInfo, TransactionType
+from parser.parsers.patterns.regex_engine import PatternParser
+from parser.parsers.ai.gemini_parser import GeminiParser
+from parser.core.normalizer import MerchantNormalizer
+from parser.core.validator import TransactionValidator
+from parser.core.guesser import CategoryGuesser
 
 class IngestionPipeline:
 
@@ -16,7 +22,7 @@ class IngestionPipeline:
 
     def _convert_to_schema_txn(self, pt: Any) -> Transaction:
         """Helper to convert backend-style ParsedTransaction or dict to microservice Transaction"""
-        from parser.schemas.transaction import Transaction, AccountInfo, MerchantInfo, TransactionType
+        
         
         # If it's already a Transaction object (from AI or Pattern parser)
         if isinstance(pt, Transaction):
@@ -80,6 +86,7 @@ class IngestionPipeline:
 
         # 3. Extraction Chain
         parsed_txn = None
+        parser_used = "Unknown"
         
         # A. Static Parsers
         parsers = ParserRegistry.get_sms_parsers() if source == "SMS" else ParserRegistry.get_email_parsers()
@@ -98,8 +105,8 @@ class IngestionPipeline:
                     pt = p.parse(content)
                     if pt:
                         parsed_txn = self._convert_to_schema_txn(pt)
-                        parser_name = getattr(p, 'name', type(p).__name__)
-                        logs.append(f"Successfully parsed by {parser_name}")
+                        parser_used = getattr(p, 'name', type(p).__name__)
+                        logs.append(f"Successfully parsed by {parser_used}")
                         break
                 except Exception as e:
                     logs.append(f"Parser {type(p).__name__} failed: {str(e)}")
@@ -107,26 +114,24 @@ class IngestionPipeline:
         # B. User Patterns
         if not parsed_txn:
              try:
-                 from parser.parsers.patterns.regex_engine import PatternParser
                  # Load rules for this source
                  p_parser = PatternParser(self.db, source)
                  pt = p_parser.parse(content)
                  if pt:
                      parsed_txn = self._convert_to_schema_txn(pt)
+                     parser_used = "User Patterns"
+                     logs.append("Parsed via Patterns")
              except Exception as e:
                  logs.append(f"Pattern Parser failed: {str(e)}")
-                 
-        if parsed_txn and not logs: # If parsed by Pattern parser
-             logs.append("Parsed via Patterns")
 
         # C. AI Fallback
         if not parsed_txn:
              try:
-                 from parser.parsers.ai.gemini_parser import GeminiParser
                  ai_parser = GeminiParser(self.db)
                  pt = ai_parser.parse(content, source)
                  if pt:
                      parsed_txn = self._convert_to_schema_txn(pt)
+                     parser_used = "Gemini AI"
                      logs.append("Extracted via AI")
              except Exception as e:
                  logs.append(f"AI Parser failed: {str(e)}")
@@ -134,8 +139,7 @@ class IngestionPipeline:
 
         # 4. Normalization & Validation
         if parsed_txn:
-             from parser.core.normalizer import MerchantNormalizer
-             from parser.core.validator import TransactionValidator
+             
              
              # Normalize Merchant
              if parsed_txn.merchant:
@@ -153,15 +157,65 @@ class IngestionPipeline:
                  logs.extend(warnings)
 
              # 5. Category Hint
-             from parser.core.guesser import CategoryGuesser
              if not parsed_txn.category:
                 parsed_txn.category = CategoryGuesser.guess(parsed_txn.merchant.cleaned, parsed_txn.description)
+
+             # 6. Cross-Source Deduplication (New Robust Feature)
+             # Check if this EXACT transaction details appeared from another source recently
+             # We check logs in the last 15 minutes for similar records
+             duplicate_window = datetime.utcnow() - timedelta(minutes=15)
+             
+             # Search previously successful extractions
+             # Note: output_payload is stored as JSON in DuckDB
+             # Using a slightly fuzzy match: same amount, mask, and merchant
+             # Due to DuckDB JSON limitations, we fetch and filter in Python for robustness
+             recent_successes = self.db.query(RequestLog).filter(
+                 RequestLog.status == "success",
+                 RequestLog.created_at >= duplicate_window,
+                 RequestLog.input_hash != input_hash # Not ourselves
+             ).all()
+
+             is_cross_duplicate = False
+             def get_digits(s): return "".join(filter(str.isdigit, str(s or "")))[-4:]
+             
+             for rs in recent_successes:
+                 try:
+                     prev_data = rs.output_payload.get("transaction")
+                     if not prev_data: continue
+                     
+                     # Comparison criteria
+                     same_amt = Decimal(str(prev_data["amount"])) == parsed_txn.amount
+                     
+                     # Robust mask check: compare last 4 digits
+                     prev_mask = get_digits(prev_data["account"]["mask"])
+                     curr_mask = get_digits(parsed_txn.account.mask if parsed_txn.account else "")
+                     same_mask = prev_mask == curr_mask if (prev_mask and curr_mask) else False
+                     
+                     # Fuzzy merchant match for deduplication
+                     same_merchant = fuzz.partial_ratio(prev_data["merchant"]["cleaned"], parsed_txn.merchant.cleaned) > 90
+                     
+                     if same_amt and same_mask and same_merchant:
+                         is_cross_duplicate = True
+                         logs.append(f"Cross-source duplicate detected from {rs.id}")
+                         break
+                 except: continue
+
+             if is_cross_duplicate:
+                 log.status = "success"
+                 item = ParsedItem(
+                    status="cross_source_duplicate",
+                    transaction=parsed_txn,
+                    metadata={"confidence": 1.0, "parser_used": "Deduplicator", "source_original": source}
+                 )
+                 log.output_payload = item.model_dump(mode='json')
+                 self.db.commit()
+                 return IngestionResult(status="success", results=[item], logs=logs)
 
              item = ParsedItem(
                 status="extracted",
                 transaction=parsed_txn,
-                metadata={"confidence": 0.5 if any("Pattern" in l for l in logs) else 1.0, 
-                          "parser_used": "Static/Pattern/AI", 
+                metadata={"confidence": 0.5 if parser_used == "User Patterns" else 1.0, 
+                          "parser_used": parser_used, 
                           "source_original": source}
             )
             
