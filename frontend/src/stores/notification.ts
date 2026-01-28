@@ -31,6 +31,7 @@ export const useNotificationStore = defineStore('notification', () => {
     function success(message: string) { add('success', message) }
     function error(message: string) { add('error', message) }
     function info(message: string) { add('info', message) }
+    function warning(message: string) { add('warning', message) }
 
     return {
         notifications,
@@ -38,6 +39,7 @@ export const useNotificationStore = defineStore('notification', () => {
         remove,
         success,
         error,
-        info
+        info,
+        warning
     }
 })

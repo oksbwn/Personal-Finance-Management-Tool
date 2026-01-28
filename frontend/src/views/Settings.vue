@@ -39,6 +39,10 @@
                             @click="activeTab = 'devices'; searchQuery = ''">
                             Devices
                         </button>
+                        <button class="tab-btn" :class="{ active: activeTab === 'parser' }"
+                            @click="activeTab = 'parser'; searchQuery = ''">
+                            Parser Engine
+                        </button>
                     </div>
                 </div>
 
@@ -52,7 +56,7 @@
                 <p>Loading your preferences...</p>
             </div>
 
-            <template v-else>
+            <div v-if="!loading">
                 <!-- GENERAL SETTINGS TAB -->
                 <div v-if="activeTab === 'general'" class="tab-content animate-in">
                     <div class="glass-card" style="max-width: 600px; margin: 0 auto; padding: 2rem;">
@@ -829,6 +833,7 @@
                                             </div>
                                         </div>
 
+
                                         <div class="ai-input-group">
                                             <label class="ai-input-label">Secure API Key</label>
                                             <input type="password" v-model="aiForm.api_key" class="form-input"
@@ -1183,681 +1188,938 @@
                         </div>
                     </div>
                 </div>
-            </template>
-        </div>
-
-        <!-- Account Modal -->
-        <div v-if="showAccountModal" class="modal-overlay-global">
-            <div class="modal-global glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ editingAccountId ? 'Edit Account' : 'New Account' }}</h2>
-                    <button class="btn-icon-circle" @click="showAccountModal = false">✕</button>
-                </div>
-
-                <form @submit.prevent="handleAccountSubmit" class="form-compact">
-                    <div class="form-group">
-                        <label class="form-label">Account Name</label>
-                        <input v-model="newAccount.name" class="form-input" required placeholder="e.g. HDFC Savings" />
-                    </div>
-
-
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label class="form-label">Type</label>
-                            <CustomSelect v-model="newAccount.type" :options="[
-                                { label: '🏦 Bank Account', value: 'BANK' },
-                                { label: '💳 Credit Card', value: 'CREDIT_CARD' },
-                                { label: '💸 Loan / EMIs', value: 'LOAN' },
-                                { label: '👛 Wallet / Cash', value: 'WALLET' },
-                                { label: '📈 Investment', value: 'INVESTMENT' }
-                            ]" />
-                        </div>
-                        <div class="form-group half">
-                            <label class="form-label">Currency</label>
-                            <CustomSelect v-model="newAccount.currency" :options="[
-                                { label: 'INR - Indian Rupee', value: 'INR' },
-                                { label: 'USD - US Dollar', value: 'USD' }
-                            ]" />
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Account Mask (Last 4 Digits)</label>
-                        <input v-model="newAccount.account_mask" class="form-input" placeholder="e.g. 1234"
-                            maxlength="4" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Account Owner</label>
-                        <CustomSelect v-model="newAccount.owner_id"
-                            :options="familyMembers.map(m => ({ label: m.full_name || m.email, value: m.id }))"
-                            placeholder="Select Owner" />
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group" :class="newAccount.type === 'CREDIT_CARD' ? 'half' : 'full'">
-                            <label class="form-label">{{ consumedLimitMsg }}</label>
-                            <input type="number" v-model.number="newAccount.balance" class="form-input" step="0.01" />
-                        </div>
-                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
-                            <label class="form-label">Total Credit Limit</label>
-                            <input type="number" v-model.number="newAccount.credit_limit" class="form-input" step="0.01"
-                                placeholder="e.g. 100000" />
-                        </div>
-                    </div>
-
-                    <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-row">
-                        <div class="form-group half">
-                            <label class="form-label">Billing Day (1-31)</label>
-                            <input type="number" v-model.number="newAccount.billing_day" class="form-input" min="1"
-                                max="31" placeholder="e.g. 15" />
-                        </div>
-                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
-                            <label class="form-label">Due Day (1-31)</label>
-                            <input type="number" v-model.number="newAccount.due_day" class="form-input" min="1" max="31"
-                                placeholder="e.g. 5" />
-                        </div>
-                    </div>
-
-                    <div class="setting-toggle-row">
-                        <div class="toggle-label">
-                            <span class="font-medium">Verified Account</span>
-                            <span class="text-xs text-muted">Trust transactions from this source</span>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" v-model="newAccount.is_verified">
-                            <span class="slider round"></span>
-                        </label>
-                    </div>
-
-                    <div class="modal-footer">
-                        <button type="button" @click="showAccountModal = false" class="btn-secondary">Cancel</button>
-                        <button type="submit" class="btn-primary-glow">Save Changes</button>
-                    </div>
-                </form>
             </div>
-        </div>
 
-        <!-- Email Config Modal - PREMIUM REDESIGN -->
-        <div v-if="showEmailModal" class="modal-overlay-global" @click.self="showEmailModal = false">
-            <div class="email-modal-premium">
-                <!-- Modal Header -->
-                <div class="email-modal-header">
-                    <div class="header-icon-wrapper">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path
-                                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
+            <!-- PARSER ENGINE TAB -->
+            <div v-if="activeTab === 'parser'" class="tab-content animate-in">
+                <div class="w-full">
+                    <!-- Status & Stats Row -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div class="glass-card p-6 flex items-center gap-4">
+                            <div class="p-3 rounded-xl"
+                                :class="parserStatus.isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'">
+                                <CheckCircle v-if="parserStatus.isOnline" :size="32" />
+                                <XCircle v-else :size="32" />
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-800">Parser Status</h3>
+                                <p class="text-sm"
+                                    :class="parserStatus.isOnline ? 'text-emerald-600' : 'text-rose-600'">
+                                    {{ parserStatus.isOnline ? 'Active & Online' : 'Service Down' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="glass-card p-6 flex items-center gap-4">
+                            <div class="p-3 rounded-xl bg-indigo-50 text-indigo-600">
+                                <Zap :size="32" />
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-800">24h Throughput</h3>
+                                <p class="text-sm text-gray-500">{{ parserStats?.summary?.total_processed || 0 }}
+                                    Requests</p>
+                            </div>
+                        </div>
+
+                        <div class="glass-card p-6 flex items-center gap-4">
+                            <div class="p-3 rounded-xl bg-amber-50 text-amber-600">
+                                <ShieldCheck :size="32" />
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-800">Success Rate</h3>
+                                <p class="text-sm text-gray-500">{{ calculateSuccessRate }}% accuracy</p>
+                            </div>
+                        </div>
                     </div>
-                    <div class="header-text">
-                        <h2 class="email-modal-title">{{ emailModalTitle }}</h2>
-                        <p class="email-modal-subtitle">{{ emailModalSubtitle }}</p>
+
+                    <div class="ai-layout mb-12">
+                        <!-- Parser Configuration -->
+                        <div class="ai-config-section">
+                            <div class="ai-card">
+                                <div class="ai-card-header">
+                                    <BrainCircuit :size="18" class="text-indigo-600" />
+                                    <h4 class="ai-card-title">Parser AI Configuration</h4>
+                                </div>
+                                <div class="ai-card-body">
+                                    <div v-if="appAiMatch"
+                                        class="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-emerald-600">✨</span>
+                                            <span class="text-xs text-emerald-800 font-medium">Synced with App
+                                                Intelligence</span>
+                                        </div>
+                                        <button @click="syncAppAiToParser"
+                                            class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 hover:underline">
+                                            Force Resync
+                                        </button>
+                                    </div>
+                                    <div v-else
+                                        class="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-amber-600">⚠️</span>
+                                            <span class="text-xs text-amber-800 font-medium">Config out of sync with
+                                                App</span>
+                                        </div>
+                                        <button @click="syncAppAiToParser"
+                                            class="px-3 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold shadow-sm">
+                                            Fix Now
+                                        </button>
+                                    </div>
+
+                                    <div class="flex flex-col gap-6">
+                                        <div class="text-sm text-gray-500">
+                                            The Parser Engine runs as a separate microservice. Sync your main
+                                            application's AI settings (Model & API Key) to ensure consistent parsing.
+                                        </div>
+
+                                        <div
+                                            class="p-4 bg-gray-50 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label
+                                                    class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Current
+                                                    Model</label>
+                                                <div class="font-mono text-sm font-semibold text-gray-800">{{
+                                                    parserAiForm.model_name || 'Not Configured' }}</div>
+                                            </div>
+                                            <div>
+                                                <label
+                                                    class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">AI
+                                                    Status</label>
+                                                <span
+                                                    :class="parserAiForm.is_enabled ? 'text-emerald-600 bg-emerald-100' : 'text-gray-500 bg-gray-200'"
+                                                    class="px-2 py-0.5 rounded textxs font-bold">
+                                                    {{ parserAiForm.is_enabled ? 'ENABLED' : 'DISABLED' }}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <button @click="syncAppAiToParser"
+                                            class="flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                                            <div class="flex items-center gap-2">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                    class="animate-spin-slow" stroke="currentColor" stroke-width="2">
+                                                    <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                </svg>
+                                                <span>Sync AI Config to Parser</span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Performance Breakdown -->
+                        <div class="ai-playground">
+                            <div class="ai-card">
+                                <div class="ai-card-header">
+                                    <Activity :size="18" class="text-amber-500" />
+                                    <h4 class="ai-card-title">Parser Performance</h4>
+                                </div>
+                                <div class="ai-card-body">
+                                    <div class="space-y-4">
+                                        <div v-for="(count, parser) in parserStats?.parser_performance" :key="parser"
+                                            class="flex flex-col gap-1">
+                                            <div class="flex justify-between text-xs">
+                                                <span class="font-bold text-gray-700">{{ parser }}</span>
+                                                <span class="text-muted">{{ count }} hits</span>
+                                            </div>
+                                            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                <div class="h-full bg-indigo-500"
+                                                    :style="{ width: (count / parserStats.summary.total_processed * 100) + '%' }">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <button class="email-modal-close" @click="showEmailModal = false">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                    </button>
+
+                    <!-- Parser History -->
+                    <!-- Parser History -->
+                    <div
+                        class="activity-log-section bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📜</span>
+                                    Parser Request History
+                                </h3>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
+                                    parserLogPagination.total }}</span>
+                                <button @click="fetchParserData(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh">🔄</button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 pr-4 font-semibold w-24">Time</th>
+                                        <th class="pb-3 pr-4 font-semibold w-20">Source</th>
+                                        <th class="pb-3 pr-4 font-semibold w-24">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold max-w-xs">Input Preview</th>
+                                        <th class="pb-3 pr-4 font-semibold">Extracted Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="log in parserLogs" :key="log.id"
+                                        class="hover:bg-white/40 group transition-colors">
+                                        <td class="py-3 text-xs whitespace-nowrap">{{ formatDate(log.created_at).meta }}
+                                        </td>
+                                        <td class="py-3">
+                                            <span
+                                                class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
+                                                {{ log.source }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3">
+                                            <span
+                                                :class="log.status === 'success' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' : 'text-rose-700 bg-rose-50 border border-rose-100'"
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center justify-center w-fit">
+                                                {{ log.status }}
+                                            </span>
+                                            <div v-if="log.error_message"
+                                                class="text-[10px] text-rose-500 mt-1 truncate max-w-[100px]"
+                                                :title="log.error_message">
+                                                {{ log.error_message }}
+                                            </div>
+                                        </td>
+                                        <td class="py-3 text-xs text-muted max-w-xs">
+                                            <div class="truncate" :title="JSON.stringify(log.input_payload)">
+                                                {{ log.input_payload?.message || log.input_payload?.body ||
+                                                    log.input_payload?.content || 'Raw Input' }}
+                                            </div>
+                                        </td>
+                                        <td class="py-3 text-xs">
+                                            <div v-if="log.output_payload" class="flex flex-col gap-1">
+                                                <div class="font-medium text-gray-800">
+                                                    {{ log.output_payload?.results?.[0]?.transaction?.merchant?.cleaned
+                                                        || log.output_payload?.transaction?.merchant?.cleaned
+                                                        || 'Unknown Merchant' }}
+                                                </div>
+                                                <div class="flex items-center gap-2 text-[10px] text-gray-500">
+                                                    <span class="font-mono">{{
+                                                        log.output_payload?.results?.[0]?.transaction?.amount ||
+                                                        log.output_payload?.transaction?.amount || '0.00' }}</span>
+                                                    <span>•</span>
+                                                    <span>{{ log.output_payload?.results?.[0]?.transaction?.category
+                                                        ||
+                                                        log.output_payload?.transaction?.category || 'Uncategorized'
+                                                    }}</span>
+                                                </div>
+                                            </div>
+                                            <span v-else class="text-gray-400 italic">No Output</span>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="parserLogs.length === 0">
+                                        <td colspan="5" class="py-12 text-center text-muted italic">
+                                            No parser logs found.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="parserLogPagination.total > parserLogPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ parserLogPagination.skip + 1 }} to {{ Math.min(parserLogPagination.skip +
+                                    parserLogPagination.limit, parserLogPagination.total) }} of {{ parserLogPagination.total
+                                }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button
+                                    @click="parserLogPagination.skip -= parserLogPagination.limit; fetchParserData()"
+                                    :disabled="parserLogPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
+                                    title="Previous Page">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M15 18l-6-6 6-6" />
+                                    </svg>
+                                </button>
+                                <button
+                                    @click="parserLogPagination.skip += parserLogPagination.limit; fetchParserData()"
+                                    :disabled="parserLogPagination.skip + parserLogPagination.limit >= parserLogPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
+                                    title="Next Page">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M9 18l6-6-6-6" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
 
-                <form @submit.prevent="saveEmailConfig" class="email-modal-form">
-                    <!-- Connection Details Section -->
-                    <div class="modal-section">
-                        <div class="section-header">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path d="M21 12h-8m8 0a9 9 0 11-18 0 9 9 0 0118 0zM8 12V8l4-4 4 4v4" />
-                            </svg>
-                            <h3>Connection Details</h3>
-                        </div>
-
-                        <div class="form-grid grid-2">
-                            <div class="form-field">
-                                <label>Email Address</label>
-                                <div class="input-with-icon">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="input-icon">
-                                        <path
-                                            d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                        <polyline points="22,6 12,13 2,6" />
-                                    </svg>
-                                    <input v-model="emailForm.email" class="premium-input" required
-                                        placeholder="name@gmail.com" />
-                                </div>
-                            </div>
-
-                            <div class="form-field">
-                                <label>App Password</label>
-                                <div class="input-with-icon">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="input-icon">
-                                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                        <path d="M7 11V7a5 5 0 0110 0v4" />
-                                    </svg>
-                                    <input type="password" v-model="emailForm.password" class="premium-input" required
-                                        placeholder="•••• •••• •••• ••••" />
-                                </div>
-                            </div>
-
-                            <div class="form-field">
-                                <label>IMAP Server</label>
-                                <input v-model="emailForm.host" class="premium-input" required
-                                    placeholder="imap.gmail.com" />
-                            </div>
-
-                            <div class="form-field">
-                                <label>Folder</label>
-                                <input v-model="emailForm.folder" class="premium-input" placeholder="INBOX" />
-                            </div>
-                        </div>
-
-                        <div class="field-hint">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="12" y1="16" x2="12" y2="12" />
-                                <line x1="12" y1="8" x2="12.01" y2="8" />
-                            </svg>
-                            Use a generated <strong>App Password</strong>, not your main password.
-                        </div>
+            <!-- Account Modal -->
+            <div v-if="showAccountModal" class="modal-overlay-global">
+                <div class="modal-global glass">
+                    <div class="modal-header">
+                        <h2 class="modal-title">{{ editingAccountId ? 'Edit Account' : 'New Account' }}</h2>
+                        <button class="btn-icon-circle" @click="showAccountModal = false">✕</button>
                     </div>
 
-                    <!-- Assignment Section -->
-                    <div class="modal-section">
-                        <div class="section-header">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                <circle cx="12" cy="7" r="4" />
-                            </svg>
-                            <h3>Ownership & Automation</h3>
+                    <form @submit.prevent="handleAccountSubmit" class="form-compact">
+                        <div class="form-group">
+                            <label class="form-label">Account Name</label>
+                            <input v-model="newAccount.name" class="form-input" required
+                                placeholder="e.g. HDFC Savings" />
                         </div>
 
-                        <div class="form-grid grid-2">
-                            <div class="form-field">
-                                <label>Assign to Family Member</label>
-                                <CustomSelect v-model="emailForm.user_id as any" :options="[
-                                    { label: '👤 Unassigned (Self)', value: null as any },
-                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
-                                ]" placeholder="Select inbox owner" />
+
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label class="form-label">Type</label>
+                                <CustomSelect v-model="newAccount.type" :options="[
+                                    { label: '🏦 Bank Account', value: 'BANK' },
+                                    { label: '💳 Credit Card', value: 'CREDIT_CARD' },
+                                    { label: '💸 Loan / EMIs', value: 'LOAN' },
+                                    { label: '👛 Wallet / Cash', value: 'WALLET' },
+                                    { label: '📈 Investment', value: 'INVESTMENT' }
+                                ]" />
+                            </div>
+                            <div class="form-group half">
+                                <label class="form-label">Currency</label>
+                                <CustomSelect v-model="newAccount.currency" :options="[
+                                    { label: 'INR - Indian Rupee', value: 'INR' },
+                                    { label: 'USD - US Dollar', value: 'USD' }
+                                ]" />
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Account Mask (Last 4 Digits)</label>
+                            <input v-model="newAccount.account_mask" class="form-input" placeholder="e.g. 1234"
+                                maxlength="4" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Account Owner</label>
+                            <CustomSelect v-model="newAccount.owner_id"
+                                :options="familyMembers.map(m => ({ label: m.full_name || m.email, value: m.id }))"
+                                placeholder="Select Owner" />
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group" :class="newAccount.type === 'CREDIT_CARD' ? 'half' : 'full'">
+                                <label class="form-label">{{ consumedLimitMsg }}</label>
+                                <input type="number" v-model.number="newAccount.balance" class="form-input"
+                                    step="0.01" />
+                            </div>
+                            <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                                <label class="form-label">Total Credit Limit</label>
+                                <input type="number" v-model.number="newAccount.credit_limit" class="form-input"
+                                    step="0.01" placeholder="e.g. 100000" />
+                            </div>
+                        </div>
+
+                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-row">
+                            <div class="form-group half">
+                                <label class="form-label">Billing Day (1-31)</label>
+                                <input type="number" v-model.number="newAccount.billing_day" class="form-input" min="1"
+                                    max="31" placeholder="e.g. 15" />
+                            </div>
+                            <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                                <label class="form-label">Due Day (1-31)</label>
+                                <input type="number" v-model.number="newAccount.due_day" class="form-input" min="1"
+                                    max="31" placeholder="e.g. 5" />
+                            </div>
+                        </div>
+
+                        <div class="setting-toggle-row">
+                            <div class="toggle-label">
+                                <span class="font-medium">Verified Account</span>
+                                <span class="text-xs text-muted">Trust transactions from this source</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" v-model="newAccount.is_verified">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" @click="showAccountModal = false"
+                                class="btn-secondary">Cancel</button>
+                            <button type="submit" class="btn-primary-glow">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Email Config Modal - PREMIUM REDESIGN -->
+            <div v-if="showEmailModal" class="modal-overlay-global" @click.self="showEmailModal = false">
+                <div class="email-modal-premium">
+                    <!-- Modal Header -->
+                    <div class="email-modal-header">
+                        <div class="header-icon-wrapper">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path
+                                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <div class="header-text">
+                            <h2 class="email-modal-title">{{ emailModalTitle }}</h2>
+                            <p class="email-modal-subtitle">{{ emailModalSubtitle }}</p>
+                        </div>
+                        <button class="email-modal-close" @click="showEmailModal = false">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <form @submit.prevent="saveEmailConfig" class="email-modal-form">
+                        <!-- Connection Details Section -->
+                        <div class="modal-section">
+                            <div class="section-header">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M21 12h-8m8 0a9 9 0 11-18 0 9 9 0 0118 0zM8 12V8l4-4 4 4v4" />
+                                </svg>
+                                <h3>Connection Details</h3>
                             </div>
 
-                            <div class="toggle-field-premium">
-                                <div class="toggle-content">
-                                    <div class="toggle-icon-wrapper active">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                            <div class="form-grid grid-2">
+                                <div class="form-field">
+                                    <label>Email Address</label>
+                                    <div class="input-with-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" class="input-icon">
+                                            <path
+                                                d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                            <polyline points="22,6 12,13 2,6" />
+                                        </svg>
+                                        <input v-model="emailForm.email" class="premium-input" required
+                                            placeholder="name@gmail.com" />
+                                    </div>
+                                </div>
+
+                                <div class="form-field">
+                                    <label>App Password</label>
+                                    <div class="input-with-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" class="input-icon">
+                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                            <path d="M7 11V7a5 5 0 0110 0v4" />
+                                        </svg>
+                                        <input type="password" v-model="emailForm.password" class="premium-input"
+                                            required placeholder="•••• •••• •••• ••••" />
+                                    </div>
+                                </div>
+
+                                <div class="form-field">
+                                    <label>IMAP Server</label>
+                                    <input v-model="emailForm.host" class="premium-input" required
+                                        placeholder="imap.gmail.com" />
+                                </div>
+
+                                <div class="form-field">
+                                    <label>Folder</label>
+                                    <input v-model="emailForm.folder" class="premium-input" placeholder="INBOX" />
+                                </div>
+                            </div>
+
+                            <div class="field-hint">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="12" y1="16" x2="12" y2="12" />
+                                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                                </svg>
+                                Use a generated <strong>App Password</strong>, not your main password.
+                            </div>
+                        </div>
+
+                        <!-- Assignment Section -->
+                        <div class="modal-section">
+                            <div class="section-header">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                                    <circle cx="12" cy="7" r="4" />
+                                </svg>
+                                <h3>Ownership & Automation</h3>
+                            </div>
+
+                            <div class="form-grid grid-2">
+                                <div class="form-field">
+                                    <label>Assign to Family Member</label>
+                                    <CustomSelect v-model="emailForm.user_id as any" :options="[
+                                        { label: '👤 Unassigned (Self)', value: null as any },
+                                        ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                                    ]" placeholder="Select inbox owner" />
+                                </div>
+
+                                <div class="toggle-field-premium">
+                                    <div class="toggle-content">
+                                        <div class="toggle-icon-wrapper active">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                            </svg>
+                                        </div>
+                                        <div class="toggle-info">
+                                            <span class="toggle-title">Auto Sync</span>
+                                        </div>
+                                    </div>
+                                    <label class="switch-premium">
+                                        <input type="checkbox" v-model="emailForm.auto_sync">
+                                        <span class="slider-premium"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="field-hint">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                Imported transactions will automatically assign to the owner. Syncs every 15 mins.
+                            </div>
+                        </div>
+
+                        <!-- Advanced Actions (Edit Mode Only) -->
+                        <div v-if="editingEmailConfig" class="advanced-actions-section">
+                            <div class="advanced-actions-header">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="1" />
+                                    <circle cx="12" cy="5" r="1" />
+                                    <circle cx="12" cy="19" r="1" />
+                                </svg>
+                                <span>Advanced & History Controls</span>
+                            </div>
+
+                            <div class="form-grid grid-2 mb-2">
+                                <div class="form-field">
+                                    <label>Custom Sync Point</label>
+                                    <input type="datetime-local" v-model="emailForm.last_sync_at" class="premium-input"
+                                        style="height: 40px;" />
+                                </div>
+                                <div class="advanced-actions-buttons" style="align-self: flex-end; gap: 0.5rem;">
+                                    <button type="button" @click="rewindSync(3)" class="btn-advanced"
+                                        style="height: 40px; flex: 1;" title="Rescan last 3 hours">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <polyline points="1 4 1 10 7 10" />
+                                            <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+                                        </svg>
+                                        Rewind 3h
+                                    </button>
+                                    <button type="button" @click="resetSyncHistory" class="btn-advanced"
+                                        style="height: 40px; flex: 1;" title="Reset all history tracking">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                             stroke="currentColor" stroke-width="2">
                                             <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                            <path d="M12 7v5l3 3" />
                                         </svg>
-                                    </div>
-                                    <div class="toggle-info">
-                                        <span class="toggle-title">Auto Sync</span>
-                                    </div>
+                                        Reset
+                                    </button>
                                 </div>
-                                <label class="switch-premium">
-                                    <input type="checkbox" v-model="emailForm.auto_sync">
-                                    <span class="slider-premium"></span>
-                                </label>
                             </div>
                         </div>
 
-                        <div class="field-hint">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            Imported transactions will automatically assign to the owner. Syncs every 15 mins.
+                        <!-- Modal Footer -->
+                        <div class="email-modal-footer">
+                            <button v-if="editingEmailConfig" type="button"
+                                @click="deleteEmailConfig(editingEmailConfig)" class="btn-advanced danger mr-auto">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path
+                                        d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                </svg>
+                                Remove Configuration
+                            </button>
+                            <button type="button" @click="showEmailModal = false"
+                                class="btn-secondary-premium">Cancel</button>
+                            <button type="submit" class="btn-primary-premium">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                {{ editingEmailConfig ? 'Update Configuration' : 'Connect Account' }}
+                            </button>
                         </div>
-                    </div>
-
-                    <!-- Advanced Actions (Edit Mode Only) -->
-                    <div v-if="editingEmailConfig" class="advanced-actions-section">
-                        <div class="advanced-actions-header">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <circle cx="12" cy="12" r="1" />
-                                <circle cx="12" cy="5" r="1" />
-                                <circle cx="12" cy="19" r="1" />
-                            </svg>
-                            <span>Advanced & History Controls</span>
-                        </div>
-
-                        <div class="form-grid grid-2 mb-2">
-                            <div class="form-field">
-                                <label>Custom Sync Point</label>
-                                <input type="datetime-local" v-model="emailForm.last_sync_at" class="premium-input"
-                                    style="height: 40px;" />
-                            </div>
-                            <div class="advanced-actions-buttons" style="align-self: flex-end; gap: 0.5rem;">
-                                <button type="button" @click="rewindSync(3)" class="btn-advanced"
-                                    style="height: 40px; flex: 1;" title="Rescan last 3 hours">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <polyline points="1 4 1 10 7 10" />
-                                        <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-                                    </svg>
-                                    Rewind 3h
-                                </button>
-                                <button type="button" @click="resetSyncHistory" class="btn-advanced"
-                                    style="height: 40px; flex: 1;" title="Reset all history tracking">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
-                                        <path d="M12 7v5l3 3" />
-                                    </svg>
-                                    Reset
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Modal Footer -->
-                    <div class="email-modal-footer">
-                        <button v-if="editingEmailConfig" type="button" @click="deleteEmailConfig(editingEmailConfig)"
-                            class="btn-advanced danger mr-auto">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                            </svg>
-                            Remove Configuration
-                        </button>
-                        <button type="button" @click="showEmailModal = false"
-                            class="btn-secondary-premium">Cancel</button>
-                        <button type="submit" class="btn-primary-premium">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            {{ editingEmailConfig ? 'Update Configuration' : 'Connect Account' }}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Sync History Modal -->
-        <div v-if="showHistoryModal" class="modal-overlay-global">
-            <div class="modal-global modal-lg glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">Sync History</h2>
-                    <button class="btn-icon-circle" @click="showHistoryModal = false">✕</button>
-                </div>
-
-                <div class="history-list">
-                    <div v-if="syncLogs.length === 0" class="empty-state-small">No logs found.</div>
-                    <table v-else class="compact-table">
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Time</th>
-                                <th>Items</th>
-                                <th>Message</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="log in syncLogs" :key="log.id">
-                                <td class="text-center">{{ getLogIcon(log.status) }}</td>
-                                <td>{{ formatDateFull(log.started_at) }}</td>
-                                <td>{{ log.items_processed || 0 }}</td>
-                                <td class="text-muted">{{ log.message }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button" @click="showHistoryModal = false" class="btn-secondary">Close</button>
+                    </form>
                 </div>
             </div>
-        </div>
 
-        <!-- Add/Edit Rule Modal -->
-        <div v-if="showModal" class="modal-overlay-global">
-            <div class="modal-global glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
-                    <button class="btn-icon-circle" @click="showModal = false">✕</button>
-                </div>
-
-                <form @submit.prevent="saveRule" class="form-compact">
-                    <div class="form-group">
-                        <label class="form-label">Rule Name</label>
-                        <input v-model="newRule.name" class="form-input" required placeholder="e.g. Ride Apps" />
+            <!-- Sync History Modal -->
+            <div v-if="showHistoryModal" class="modal-overlay-global">
+                <div class="modal-global modal-lg glass">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Sync History</h2>
+                        <button class="btn-icon-circle" @click="showHistoryModal = false">✕</button>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Category</label>
-                        <CustomSelect v-model="newRule.category" :options="categoryOptions"
-                            placeholder="Select Category" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Keywords (Comma Separated)</label>
-                        <textarea v-model="newRule.keywords" class="form-input" rows="3"
-                            placeholder="Uber, Lyft, Ola"></textarea>
-                    </div>
-
-                    <div class="setting-toggle-row">
-                        <div class="toggle-label">
-                            <span class="font-medium">Auto-Exclude from Reports</span>
-                            <span class="text-xs text-muted">Automatically hide matching transactions from
-                                analytics</span>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" v-model="newRule.exclude_from_reports">
-                            <span class="slider round"></span>
-                        </label>
+                    <div class="history-list">
+                        <div v-if="syncLogs.length === 0" class="empty-state-small">No logs found.</div>
+                        <table v-else class="compact-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                    <th>Items</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="log in syncLogs" :key="log.id">
+                                    <td class="text-center">{{ getLogIcon(log.status) }}</td>
+                                    <td>{{ formatDateFull(log.started_at) }}</td>
+                                    <td>{{ log.items_processed || 0 }}</td>
+                                    <td class="text-muted">{{ log.message }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
 
                     <div class="modal-footer">
-                        <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
-                        <button type="submit" class="btn-primary-glow">Save Rule</button>
+                        <button type="button" @click="showHistoryModal = false" class="btn-secondary">Close</button>
                     </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Add/Edit Category Modal -->
-        <div v-if="showCategoryModal" class="modal-overlay-global">
-            <div class="modal-global glass premium-modal animate-in">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ isEditingCategory ? 'Edit Category' : 'New Category' }}</h2>
-                    <button class="btn-icon-circle" @click="showCategoryModal = false">✕</button>
                 </div>
+            </div>
 
-                <form @submit.prevent="saveCategory" class="form-compact">
-                    <!-- Preview Section -->
-                    <div class="category-preview-banner mb-6" :style="{ background: `${newCategory.color}10` }">
-                        <div class="preview-icon"
-                            :style="{ background: `${newCategory.color}20`, color: newCategory.color }">
-                            {{ newCategory.icon || '🏷️' }}
-                        </div>
-                        <div class="preview-text">
-                            <div class="preview-name">{{ newCategory.name || 'Category Name' }}</div>
-                            <div class="preview-type">{{ (newCategory.type || 'expense').toUpperCase() }}</div>
-                        </div>
+            <!-- Add/Edit Rule Modal -->
+            <div v-if="showModal" class="modal-overlay-global">
+                <div class="modal-global glass">
+                    <div class="modal-header">
+                        <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
+                        <button class="btn-icon-circle" @click="showModal = false">✕</button>
                     </div>
 
-                    <div class="form-group mb-6">
-                        <label class="form-label">Icon (Emoji)</label>
-                        <div class="emoji-picker-container">
-                            <input v-model="newCategory.icon" class="form-input emoji-input-large" required
-                                maxlength="2" />
-                            <div class="emoji-grid-subtle">
-                                <span
-                                    v-for="e in ['💰', '🛒', '🚗', '🏠', '🍔', '🎮', '🏥', '✈️', '🎓', '👔', '🛒', '🛍️', '🍿', '🍕']"
-                                    :key="e" @click="newCategory.icon = e" class="emoji-opt">
-                                    {{ e }}
-                                </span>
+                    <form @submit.prevent="saveRule" class="form-compact">
+                        <div class="form-group">
+                            <label class="form-label">Rule Name</label>
+                            <input v-model="newRule.name" class="form-input" required placeholder="e.g. Ride Apps" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Category</label>
+                            <CustomSelect v-model="newRule.category" :options="categoryOptions"
+                                placeholder="Select Category" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Keywords (Comma Separated)</label>
+                            <textarea v-model="newRule.keywords" class="form-input" rows="3"
+                                placeholder="Uber, Lyft, Ola"></textarea>
+                        </div>
+
+                        <div class="setting-toggle-row">
+                            <div class="toggle-label">
+                                <span class="font-medium">Auto-Exclude from Reports</span>
+                                <span class="text-xs text-muted">Automatically hide matching transactions from
+                                    analytics</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" v-model="newRule.exclude_from_reports">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
+                            <button type="submit" class="btn-primary-glow">Save Rule</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Add/Edit Category Modal -->
+            <div v-if="showCategoryModal" class="modal-overlay-global">
+                <div class="modal-global glass premium-modal animate-in">
+                    <div class="modal-header">
+                        <h2 class="modal-title">{{ isEditingCategory ? 'Edit Category' : 'New Category' }}</h2>
+                        <button class="btn-icon-circle" @click="showCategoryModal = false">✕</button>
+                    </div>
+
+                    <form @submit.prevent="saveCategory" class="form-compact">
+                        <!-- Preview Section -->
+                        <div class="category-preview-banner mb-6" :style="{ background: `${newCategory.color}10` }">
+                            <div class="preview-icon"
+                                :style="{ background: `${newCategory.color}20`, color: newCategory.color }">
+                                {{ newCategory.icon || '🏷️' }}
+                            </div>
+                            <div class="preview-text">
+                                <div class="preview-name">{{ newCategory.name || 'Category Name' }}</div>
+                                <div class="preview-type">{{ (newCategory.type || 'expense').toUpperCase() }}</div>
                             </div>
                         </div>
+
+                        <div class="form-group mb-6">
+                            <label class="form-label">Icon (Emoji)</label>
+                            <div class="emoji-picker-container">
+                                <input v-model="newCategory.icon" class="form-input emoji-input-large" required
+                                    maxlength="2" />
+                                <div class="emoji-grid-subtle">
+                                    <span
+                                        v-for="e in ['💰', '🛒', '🚗', '🏠', '🍔', '🎮', '🏥', '✈️', '🎓', '👔', '🛒', '🛍️', '🍿', '🍕']"
+                                        :key="e" @click="newCategory.icon = e" class="emoji-opt">
+                                        {{ e }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-6">
+                            <label class="form-label">Category Name</label>
+                            <input v-model="newCategory.name" class="form-input" required
+                                placeholder="e.g. Subscriptions" />
+                        </div>
+
+                        <div class="form-row mb-6">
+                            <div class="form-group half">
+                                <label class="form-label">Type</label>
+                                <CustomSelect v-model="newCategory.type" :options="[
+                                    { label: '🔴 Expense', value: 'expense' },
+                                    { label: '🟢 Income', value: 'income' },
+                                    { label: '🔄 Transfer', value: 'transfer' }
+                                ]" />
+                            </div>
+                            <div class="form-group half">
+                                <label class="form-label">Theme Color</label>
+                                <div class="color-selection-wrapper">
+                                    <input type="color" v-model="newCategory.color" class="color-input-bubble" />
+                                    <div class="color-preset-grid">
+                                        <div v-for="c in colorPresets" :key="c" @click="newCategory.color = c"
+                                            class="color-dot" :style="{ background: c }"
+                                            :class="{ active: newCategory.color === c }">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" @click="showCategoryModal = false"
+                                class="btn-secondary">Cancel</button>
+                            <button type="submit" class="btn-primary-glow">Save Category</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Confirmations -->
+            <div v-if="showDeleteConfirm" class="modal-overlay-global">
+                <div class="modal-global glass alert">
+                    <h2 class="modal-title">Delete Rule?</h2>
+                    <p>This will stop automatic categorization for matching transactions.</p>
+                    <div class="modal-footer">
+                        <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
+                        <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Delete Category Confirmation -->
+            <div v-if="showDeleteCategoryConfirm" class="modal-overlay-global">
+                <div class="modal-global glass alert">
+                    <h2 class="modal-title">Delete Category?</h2>
+                    <p>Existing transactions in this category will become uncategorized.</p>
+                    <div class="modal-footer">
+                        <button @click="showDeleteCategoryConfirm = false" class="btn-secondary">Cancel</button>
+                        <button @click="confirmDeleteCategory" class="btn-danger">Delete</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Delete Account Confirmation -->
+            <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
+                <div class="modal-global glass alert max-w-md">
+                    <div class="modal-icon-header danger">🗑️</div>
+                    <h2 class="modal-title">Delete Account?</h2>
+                    <div class="alert-info-box mb-6">
+                        <p class="mb-2">You are about to delete <strong>{{ accountToDelete?.name }}</strong>.</p>
+                        <p class="text-danger font-bold" v-if="accountTxCount > 0">
+                            ⚠️ This will also permanently delete {{ accountTxCount }} transactions.
+                        </p>
+                        <p v-else class="text-muted">No transactions are currently linked to this account.</p>
+                    </div>
+                    <p class="text-xs text-muted mb-6">This action cannot be undone. Are you absolutely sure?</p>
+
+                    <div class="modal-footer">
+                        <button @click="showAccountDeleteConfirm = false" class="btn-secondary"
+                            :disabled="isDeletingAccount">Cancel</button>
+                        <button @click="confirmAccountDelete" class="btn-danger-glow" :disabled="isDeletingAccount">
+                            {{ isDeletingAccount ? 'Deleting...' : 'Yes, Delete Everything' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- Auto-Exclude Confirmation -->
+            <div v-if="showExcludeConfirm" class="modal-overlay-global">
+                <div class="modal-global glass alert max-w-md">
+                    <div class="modal-icon-header warning">⚠️</div>
+                    <h2 class="modal-title">Enable Auto-Exclude?</h2>
+                    <div class="alert-info-box mb-6">
+                        <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
+                        <p class="text-sm text-muted">
+                            Matching transactions will be tagged as non-reportable and will be <strong>hidden from
+                                analytics</strong> by default.
+                        </p>
+                    </div>
+                    <div class="modal-footer">
+                        <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
+                        <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Add/Edit Family Member Modal -->
+            <div v-if="showMemberModal" class="modal-overlay-global">
+                <div class="modal-global glass">
+                    <div class="modal-header">
+                        <h2 class="modal-title">{{ isEditingMember ? 'Edit Profile' : 'Add Family Member' }}</h2>
+                        <button class="btn-icon-circle" @click="showMemberModal = false">✕</button>
                     </div>
 
-                    <div class="form-group mb-6">
-                        <label class="form-label">Category Name</label>
-                        <input v-model="newCategory.name" class="form-input" required
-                            placeholder="e.g. Subscriptions" />
-                    </div>
+                    <form @submit.prevent="handleMemberSubmit" class="form-compact">
+                        <div class="avatar-picker-grid">
+                            <div v-for="a in ['👨‍💼', '👩‍💼', '👶', '👴', '👵', '👨‍🎓', '👩‍🎓', '🐶']" :key="a"
+                                class="avatar-option" :class="{ active: memberForm.avatar === a }"
+                                @click="memberForm.avatar = a">
+                                {{ a }}
+                            </div>
+                            <input v-model="memberForm.avatar" class="form-input emoji-input-sm" maxlength="2"
+                                placeholder="🔍" />
+                        </div>
 
-                    <div class="form-row mb-6">
-                        <div class="form-group half">
-                            <label class="form-label">Type</label>
-                            <CustomSelect v-model="newCategory.type" :options="[
-                                { label: '🔴 Expense', value: 'expense' },
-                                { label: '🟢 Income', value: 'income' },
-                                { label: '🔄 Transfer', value: 'transfer' }
+                        <div class="form-group">
+                            <label class="form-label">Full Name</label>
+                            <input v-model="memberForm.full_name" class="form-input" required
+                                placeholder="e.g. Sarah Smith" />
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label class="form-label">Date of Birth</label>
+                                <input type="date" v-model="memberForm.dob" class="form-input" />
+                            </div>
+                            <div class="form-group half">
+                                <label class="form-label">PAN Number</label>
+                                <div style="position: relative;">
+                                    <input :type="showPan ? 'text' : 'password'" v-model="memberForm.pan_number"
+                                        class="form-input" style="padding-right: 2.5rem;" placeholder="ABCDE1234F"
+                                        maxlength="10" />
+                                    <button type="button" @click="showPan = !showPan"
+                                        style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; opacity: 0.5;">
+                                        {{ showPan ? '🙈' : '👁️' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Email Address</label>
+                            <input v-model="memberForm.email" class="form-input" :disabled="isEditingMember"
+                                type="email" required placeholder="sarah@example.com" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
+                                }}</label>
+                            <input v-model="memberForm.password" class="form-input" type="password"
+                                :required="!isEditingMember" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Role / Permissions</label>
+                            <CustomSelect v-model="memberForm.role" :options="[
+                                { label: 'Admin (See everything)', value: 'OWNER' },
+                                { label: 'Adult (Edit access)', value: 'ADULT' },
+                                { label: 'Child (Watch only / Restricted)', value: 'CHILD' },
+                                { label: 'Guest', value: 'GUEST' }
                             ]" />
                         </div>
-                        <div class="form-group half">
-                            <label class="form-label">Theme Color</label>
-                            <div class="color-selection-wrapper">
-                                <input type="color" v-model="newCategory.color" class="color-input-bubble" />
-                                <div class="color-preset-grid">
-                                    <div v-for="c in colorPresets" :key="c" @click="newCategory.color = c"
-                                        class="color-dot" :style="{ background: c }"
-                                        :class="{ active: newCategory.color === c }">
-                                    </div>
-                                </div>
-                            </div>
+
+                        <div class="modal-footer">
+                            <button type="button" @click="showMemberModal = false" class="btn-secondary">Cancel</button>
+                            <button type="submit" class="btn-primary-glow">{{ addMemberMsg }}</button>
                         </div>
+                    </form>
+                </div>
+            </div>
+            <!-- Device Assignment Modal -->
+            <div v-if="showDeviceAssignModal" class="modal-overlay-global">
+                <div class="modal-global glass text-center">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Edit Device Settings</h2>
+                        <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
                     </div>
-
-                    <div class="modal-footer">
-                        <button type="button" @click="showCategoryModal = false" class="btn-secondary">Cancel</button>
-                        <button type="submit" class="btn-primary-glow">Save Category</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Confirmations -->
-        <div v-if="showDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global glass alert">
-                <h2 class="modal-title">Delete Rule?</h2>
-                <p>This will stop automatic categorization for matching transactions.</p>
-                <div class="modal-footer">
-                    <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
-                    <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
-                </div>
-            </div>
-        </div>
-        <!-- Delete Category Confirmation -->
-        <div v-if="showDeleteCategoryConfirm" class="modal-overlay-global">
-            <div class="modal-global glass alert">
-                <h2 class="modal-title">Delete Category?</h2>
-                <p>Existing transactions in this category will become uncategorized.</p>
-                <div class="modal-footer">
-                    <button @click="showDeleteCategoryConfirm = false" class="btn-secondary">Cancel</button>
-                    <button @click="confirmDeleteCategory" class="btn-danger">Delete</button>
-                </div>
-            </div>
-        </div>
-        <!-- Delete Account Confirmation -->
-        <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global glass alert max-w-md">
-                <div class="modal-icon-header danger">🗑️</div>
-                <h2 class="modal-title">Delete Account?</h2>
-                <div class="alert-info-box mb-6">
-                    <p class="mb-2">You are about to delete <strong>{{ accountToDelete?.name }}</strong>.</p>
-                    <p class="text-danger font-bold" v-if="accountTxCount > 0">
-                        ⚠️ This will also permanently delete {{ accountTxCount }} transactions.
-                    </p>
-                    <p v-else class="text-muted">No transactions are currently linked to this account.</p>
-                </div>
-                <p class="text-xs text-muted mb-6">This action cannot be undone. Are you absolutely sure?</p>
-
-                <div class="modal-footer">
-                    <button @click="showAccountDeleteConfirm = false" class="btn-secondary"
-                        :disabled="isDeletingAccount">Cancel</button>
-                    <button @click="confirmAccountDelete" class="btn-danger-glow" :disabled="isDeletingAccount">
-                        {{ isDeletingAccount ? 'Deleting...' : 'Yes, Delete Everything' }}
-                    </button>
-                </div>
-            </div>
-        </div>
-
-
-
-        <!-- Auto-Exclude Confirmation -->
-        <div v-if="showExcludeConfirm" class="modal-overlay-global">
-            <div class="modal-global glass alert max-w-md">
-                <div class="modal-icon-header warning">⚠️</div>
-                <h2 class="modal-title">Enable Auto-Exclude?</h2>
-                <div class="alert-info-box mb-6">
-                    <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
-                    <p class="text-sm text-muted">
-                        Matching transactions will be tagged as non-reportable and will be <strong>hidden from
-                            analytics</strong> by default.
-                    </p>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
-                    <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
-                </div>
-            </div>
-        </div>
-
-
-        <!-- Auto-Exclude Confirmation -->
-        <div v-if="showExcludeConfirm" class="modal-overlay-global">
-            <div class="modal-global glass alert max-w-md">
-                <div class="modal-icon-header warning">⚠️</div>
-                <h2 class="modal-title">Enable Auto-Exclude?</h2>
-                <div class="alert-info-box mb-6">
-                    <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
-                    <p class="text-sm text-muted">
-                        Matching transactions will be tagged as non-reportable and will be <strong>hidden from
-                            analytics</strong> by default.
-                    </p>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
-                    <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Add/Edit Family Member Modal -->
-        <div v-if="showMemberModal" class="modal-overlay-global">
-            <div class="modal-global glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ isEditingMember ? 'Edit Profile' : 'Add Family Member' }}</h2>
-                    <button class="btn-icon-circle" @click="showMemberModal = false">✕</button>
-                </div>
-
-                <form @submit.prevent="handleMemberSubmit" class="form-compact">
-                    <div class="avatar-picker-grid">
-                        <div v-for="a in ['👨‍💼', '👩‍💼', '👶', '👴', '👵', '👨‍🎓', '👩‍🎓', '🐶']" :key="a"
-                            class="avatar-option" :class="{ active: memberForm.avatar === a }"
-                            @click="memberForm.avatar = a">
-                            {{ a }}
+                    <div class="p-4" style="text-align: left;">
+                        <div class="form-group mb-4">
+                            <label class="form-label">Display Name</label>
+                            <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
                         </div>
-                        <input v-model="memberForm.avatar" class="form-input emoji-input-sm" maxlength="2"
-                            placeholder="🔍" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Full Name</label>
-                        <input v-model="memberForm.full_name" class="form-input" required
-                            placeholder="e.g. Sarah Smith" />
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label class="form-label">Date of Birth</label>
-                            <input type="date" v-model="memberForm.dob" class="form-input" />
+                        <div class="form-group">
+                            <label class="form-label">Assign Family Member</label>
+                            <CustomSelect v-model="selectedAssignUserId as any" :options="[
+                                { label: '👤 Unassigned', value: null as any },
+                                ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                            ]" placeholder="Select Owner" />
                         </div>
-                        <div class="form-group half">
-                            <label class="form-label">PAN Number</label>
-                            <div style="position: relative;">
-                                <input :type="showPan ? 'text' : 'password'" v-model="memberForm.pan_number"
-                                    class="form-input" style="padding-right: 2.5rem;" placeholder="ABCDE1234F"
-                                    maxlength="10" />
-                                <button type="button" @click="showPan = !showPan"
-                                    style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; opacity: 0.5;">
-                                    {{ showPan ? '🙈' : '👁️' }}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Email Address</label>
-                        <input v-model="memberForm.email" class="form-input" :disabled="isEditingMember" type="email"
-                            required placeholder="sarah@example.com" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                        }}</label>
-                        <input v-model="memberForm.password" class="form-input" type="password"
-                            :required="!isEditingMember" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Role / Permissions</label>
-                        <CustomSelect v-model="memberForm.role" :options="[
-                            { label: 'Admin (See everything)', value: 'OWNER' },
-                            { label: 'Adult (Edit access)', value: 'ADULT' },
-                            { label: 'Child (Watch only / Restricted)', value: 'CHILD' },
-                            { label: 'Guest', value: 'GUEST' }
-                        ]" />
-                    </div>
-
-                    <div class="modal-footer">
-                        <button type="button" @click="showMemberModal = false" class="btn-secondary">Cancel</button>
-                        <button type="submit" class="btn-primary-glow">{{ addMemberMsg }}</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        <!-- Device Assignment Modal -->
-        <div v-if="showDeviceAssignModal" class="modal-overlay-global">
-            <div class="modal-global glass text-center">
-                <div class="modal-header">
-                    <h2 class="modal-title">Edit Device Settings</h2>
-                    <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
-                </div>
-                <div class="p-4" style="text-align: left;">
-                    <div class="form-group mb-4">
-                        <label class="form-label">Display Name</label>
-                        <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Assign Family Member</label>
-                        <CustomSelect v-model="selectedAssignUserId as any" :options="[
-                            { label: '👤 Unassigned', value: null as any },
-                            ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
-                        ]" placeholder="Select Owner" />
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
-                    <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Device Delete Confirmation Modal -->
-        <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global glass text-center" style="max-width: 400px;">
-                <div class="p-6">
-                    <div class="text-4xl mb-4">🗑️</div>
-                    <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
-                    <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
-                        deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
-
-                    <div class="flex gap-3">
-                        <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
-                            Device</button>
-                        <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete Permanently</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tenant Rename Modal -->
-        <div v-if="showTenantModal" class="modal-overlay-global">
-            <div class="modal-global glass">
-                <div class="modal-header">
-                    <h2 class="modal-title">Rename Family Circle</h2>
-                    <button class="btn-icon-circle" @click="showTenantModal = false">✕</button>
-                </div>
-
-                <form @submit.prevent="handleRenameTenant" class="form-compact">
-                    <div class="form-group">
-                        <label class="form-label">New Family Name</label>
-                        <input v-model="tenantForm.name" class="form-input" required placeholder="e.g. The Smiths" />
                     </div>
                     <div class="modal-footer">
-                        <button type="button" @click="showTenantModal = false" class="btn-secondary">Cancel</button>
-                        <button type="submit" class="btn-primary-glow">Save Changes</button>
+                        <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
+                        <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
                     </div>
-                </form>
+                </div>
+            </div>
+
+            <!-- Device Delete Confirmation Modal -->
+            <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
+                <div class="modal-global glass text-center" style="max-width: 400px;">
+                    <div class="p-6">
+                        <div class="text-4xl mb-4">🗑️</div>
+                        <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
+                        <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
+                            deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
+
+                        <div class="flex gap-3">
+                            <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
+                                Device</button>
+                            <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete
+                                Permanently</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tenant Rename Modal -->
+            <div v-if="showTenantModal" class="modal-overlay-global">
+                <div class="modal-global glass">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Rename Family Circle</h2>
+                        <button class="btn-icon-circle" @click="showTenantModal = false">✕</button>
+                    </div>
+
+                    <form @submit.prevent="handleRenameTenant" class="form-compact">
+                        <div class="form-group">
+                            <label class="form-label">New Family Name</label>
+                            <input v-model="tenantForm.name" class="form-input" required
+                                placeholder="e.g. The Smiths" />
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" @click="showTenantModal = false" class="btn-secondary">Cancel</button>
+                            <button type="submit" class="btn-primary-glow">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </MainLayout>
@@ -1865,9 +2127,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Pencil, Trash2 } from 'lucide-vue-next'
+import {
+    Pencil, Trash2, CheckCircle, XCircle, Zap,
+    ShieldCheck, BrainCircuit, Activity
+} from 'lucide-vue-next'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi, aiApi, mobileApi } from '@/api/client'
+import { financeApi, aiApi, mobileApi, parserApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import { useSettingsStore } from '@/stores/settings'
@@ -2113,6 +2378,79 @@ const aiTesting = ref(false)
 const aiTestResult = ref<any>(null)
 const aiTestMessage = ref("Spent Rs 500.50 at Amazon using card ending in 1234 on 14/01/2026")
 
+// Parser Engine State
+const parserStatus = ref({ isOnline: false })
+const parserStats = ref<any>(null)
+const parserLogs = ref<any[]>([])
+const parserAiForm = ref({
+    is_enabled: false,
+    model_name: 'models/gemini-1.5-flash',
+    api_key: ''
+})
+
+const calculateSuccessRate = computed(() => {
+    if (!parserStats.value?.summary?.total_processed) return 0
+    const success = parserStats.value.summary.status_breakdown?.success || 0
+    return Math.round((success / parserStats.value.summary.total_processed) * 100)
+})
+
+const appAiMatch = computed(() => {
+    // Check if app Gemini config matches parser Gemini config
+    return aiForm.value.model_name === parserAiForm.value.model_name &&
+        aiForm.value.is_enabled === parserAiForm.value.is_enabled
+})
+
+const parserLogPagination = ref({ limit: 10, skip: 0, total: 0 })
+
+const fetchParserData = async (sourceFilter?: string, refresh: boolean = false) => {
+    if (refresh) {
+        // parserLogPagination.value.skip = 0 // Optional: reset to page 1 on manual refresh
+    }
+
+    try {
+        const [health, stats, logs, config] = await Promise.all([
+            parserApi.getHealth(),
+            parserApi.getStats(),
+            parserApi.getLogs({
+                limit: parserLogPagination.value.limit,
+                offset: parserLogPagination.value.skip,
+                source: sourceFilter
+            }),
+            parserApi.getAiConfig()
+        ])
+        parserStatus.value.isOnline = health.data.status === 'ok'
+        parserStats.value = stats.data
+        parserLogs.value = logs.data.logs
+        parserLogPagination.value.total = logs.data.total
+
+        parserAiForm.value = {
+            is_enabled: config.data.is_enabled || false,
+            model_name: config.data.model_name || 'models/gemini-1.5-flash',
+            api_key: '' // Don't show existing key
+        }
+    } catch (e) {
+        parserStatus.value.isOnline = false
+        console.error("Failed to fetch parser data", e)
+    }
+}
+
+
+async function syncAppAiToParser() {
+    if (!aiForm.value.has_api_key && !aiForm.value.api_key) {
+        notify.warning("App AI is not configured. Redirecting to AI tab...")
+        activeTab.value = 'ai'
+        return
+    }
+
+    try {
+        await financeApi.syncAiToParser()
+        notify.success("Synced App AI Settings to Parser")
+        fetchParserData()
+    } catch (e) {
+        notify.error("Sync failed: Check if parser microservice is online")
+    }
+}
+
 async function fetchAiModels() {
     try {
         const res = await aiApi.listModels(aiForm.value.provider, aiForm.value.api_key)
@@ -2150,8 +2488,24 @@ async function fetchAiSettings() {
 async function saveAiSettings() {
     try {
         await aiApi.updateSettings(aiForm.value)
+
+        // Auto-configure parser if key is provided
+        if (aiForm.value.api_key || aiForm.value.has_api_key) {
+            try {
+                await parserApi.updateAiConfig({
+                    is_enabled: aiForm.value.is_enabled,
+                    model_name: aiForm.value.model_name,
+                    api_key: aiForm.value.api_key || undefined
+                })
+                console.log("Parser auto-configured with App AI settings")
+            } catch (pe) {
+                console.error("Failed to auto-configure parser", pe)
+            }
+        }
+
         notify.success("AI settings updated")
         fetchAiSettings()
+        if (activeTab.value === 'parser') fetchParserData()
     } catch (e) {
         notify.error("Failed to update AI settings")
     }
@@ -2208,6 +2562,7 @@ async function fetchData() {
         currentUser.value = meRes.data
         devices.value = devicesRes.data
         fetchAiSettings()
+        fetchParserData()
         fetchIngestionEvents()
         fetchEmailLogs()
     } catch (err) {

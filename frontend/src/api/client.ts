@@ -2,7 +2,7 @@ import axios, { type AxiosInstance } from 'axios'
 
 // Create Axios instance
 const apiClient: AxiosInstance = axios.create({
-    baseURL: import.meta.env.VITE_API_DIR || '/api/v1',
+    baseURL: import.meta.env.VITE_API_URL || '/api/v1',
     headers: {
         'Content-Type': 'application/json',
     },
@@ -142,6 +142,7 @@ export const financeApi = {
     labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),
     dismissTrainingMessage: (id: string, createIgnoreRule: boolean = false) => apiClient.delete(`/ingestion/training/${id}`, { params: { create_ignore_rule: createIgnoreRule } }),
     bulkDismissTraining: (ids: string[], createIgnoreRules: boolean = false) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids, create_ignore_rules: createIgnoreRules }),
+    syncAiToParser: () => apiClient.post('/ingestion/ai/sync-to-parser'),
     getIngestionEvents: (params?: { limit?: number, skip?: number, device_id?: string }) => apiClient.get('/ingestion/events', { params }),
     bulkDeleteEvents: (ids: string[]) => apiClient.post('/ingestion/events/bulk-delete', { event_ids: ids }),
     getEmailLogs: (params?: { limit?: number, skip?: number, config_id?: string }) => apiClient.get('/ingestion/email/logs', { params }),
@@ -191,6 +192,27 @@ export const financeApi = {
     getPortfolioInsights: () => apiClient.post('/finance/loans/portfolio/insights', {}),
     createLoan: (data: any) => apiClient.post('/finance/loans', data),
     recordLoanRepayment: (loanId: string, data: any) => apiClient.post(`/finance/loans/${loanId}/repayment`, data),
+}
+
+// Parser Microservice API (Port 8001)
+const parserClient = axios.create({
+    baseURL: import.meta.env.VITE_PARSER_API_URL || 'http://localhost:8001/v1',
+    headers: {
+        'Content-Type': 'application/json',
+    },
+})
+
+export const parserApi = {
+    getHealth: () => parserClient.get('/health'),
+    getStats: () => parserClient.get('/stats'),
+    getLogs: (params?: { limit?: number, offset?: number, source?: string, status?: string }) =>
+        parserClient.get('/logs', { params }),
+    getLogDetail: (id: string) => parserClient.get(`/logs/${id}`),
+    getAiConfig: () => parserClient.get('/config/ai'),
+    updateAiConfig: (data: any) => parserClient.post('/config/ai', data),
+    getPatterns: () => parserClient.get('/config/patterns'),
+    createPattern: (data: any) => parserClient.post('/config/patterns', data),
+    deletePattern: (id: string) => parserClient.delete(`/config/patterns/${id}`),
 }
 
 export const aiApi = {
