@@ -11,16 +11,35 @@ from backend.app.modules.ingestion import models as ingestion_models
 
 class TransactionService:
     @staticmethod
-    def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str) -> models.Transaction:
-        # Deduplication Check: external_id
-        if transaction.external_id:
-            existing = db.query(models.Transaction).filter(
-                models.Transaction.tenant_id == tenant_id,
-                models.Transaction.external_id == transaction.external_id
-            ).first()
+    def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str, exclude_pending_id: Optional[str] = None) -> models.Transaction:
+        # 1. Unified Deduplication Check (Ref ID, Hash-Fallback, and Fields)
+        from backend.app.modules.ingestion.deduplicator import TransactionDeduplicator
+        is_dup, reason, existing_id = TransactionDeduplicator.check_raw_duplicate(
+            db, tenant_id, str(transaction.account_id), transaction.amount, transaction.date, 
+            transaction.description, transaction.recipient, transaction.external_id,
+            exclude_pending_id=exclude_pending_id
+        )
+        
+        if is_dup:
+            # If it found a match in confirmed transactions, return it
+            # We check the confirmed table specifically here to be sure
+            existing = db.query(models.Transaction).filter(models.Transaction.id == existing_id).first()
+            if existing: return existing
             
-            if existing:
-                return existing
+            # If it was in pending/triage, the deduplicator returns it, but create_transaction 
+            # should probably still proceed or throw if it's strictly enforced.
+            # In our system, manual creation/import should skip if already in triage too.
+            # For now, let's treat it as a skip (return None or raise?) 
+            # But the service signature returns models.Transaction.
+            # Easiest: return None or raise. Usually create_transaction should be idempotent.
+            raise ValueError(f"Duplicate transaction: {reason}")
+            
+        # 2. Content Hash Generation (for storage)
+        txn_hash = getattr(transaction, 'content_hash', None)
+        if not txn_hash:
+            txn_hash = TransactionDeduplicator.generate_hash(
+                tenant_id, str(transaction.account_id), transaction.date, transaction.amount, transaction.description, transaction.recipient
+            )
 
         # Serialize tags if present
         tags_str = json.dumps(transaction.tags) if transaction.tags else None
@@ -63,7 +82,7 @@ class TransactionService:
             is_transfer=transaction.is_transfer,
             linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
             source=transaction.source if hasattr(transaction, 'source') else "MANUAL",
-            content_hash=getattr(transaction, 'content_hash', None),
+            content_hash=txn_hash,
             exclude_from_reports=final_exclude,
             is_emi=getattr(transaction, 'is_emi', False),
             loan_id=getattr(transaction, 'loan_id', None)
@@ -380,7 +399,7 @@ class TransactionService:
             pending.exclude_from_reports = final_exclude
             real_txn = TransferService.approve_transfer(db, pending, tenant_id)
         else:
-            real_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
+            real_txn = TransactionService.create_transaction(db, txn_create, tenant_id, exclude_pending_id=pending_id)
         
         if pending.balance is not None or pending.credit_limit is not None:
             account = db.query(models.Account).filter(models.Account.id == pending.account_id).first()

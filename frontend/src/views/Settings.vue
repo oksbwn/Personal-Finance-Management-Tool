@@ -1396,23 +1396,25 @@
                                         </td>
                                         <td class="py-3 text-xs">
                                             <div v-if="log.output_payload" class="flex flex-col gap-1">
-                                                <div class="font-medium text-gray-800">
-                                                    {{ log.output_payload?.results?.[0]?.transaction?.merchant?.cleaned
-                                                        || log.output_payload?.transaction?.merchant?.cleaned
-                                                        || 'Unknown Merchant' }}
+                                                <div v-if="log.output_payload.results?.length > 1"
+                                                    class="font-bold text-indigo-600">
+                                                    📦 {{ log.output_payload.results.length }} items
                                                 </div>
-                                                <div class="flex items-center gap-2 text-[10px] text-gray-500">
-                                                    <span class="font-mono">{{
-                                                        log.output_payload?.results?.[0]?.transaction?.amount ||
-                                                        log.output_payload?.transaction?.amount || '0.00' }}</span>
-                                                    <span>•</span>
-                                                    <span>{{ log.output_payload?.results?.[0]?.transaction?.category
-                                                        ||
-                                                        log.output_payload?.transaction?.category || 'Uncategorized'
-                                                    }}</span>
+                                                <div v-if="log.output_payload.results?.[0]?.transaction"
+                                                    class="font-medium text-gray-800">
+                                                    {{ log.output_payload.results[0].transaction.merchant?.cleaned ||
+                                                        log.output_payload.results[0].transaction.description }}
                                                 </div>
+                                                <div v-if="log.output_payload.results?.[0]?.transaction"
+                                                    class="text-gray-500">
+                                                    {{ formatAmount(log.output_payload.results[0].transaction.amount) }}
+                                                </div>
+                                                <div v-else-if="log.output_payload.error" class="text-rose-500 italic">
+                                                    {{ log.output_payload.error }}
+                                                </div>
+                                                <div v-else class="text-gray-400 italic">No extraction</div>
                                             </div>
-                                            <span v-else class="text-gray-400 italic">No Output</span>
+                                            <div v-else class="text-gray-400 italic">No output</div>
                                         </td>
                                     </tr>
                                     <tr v-if="parserLogs.length === 0">

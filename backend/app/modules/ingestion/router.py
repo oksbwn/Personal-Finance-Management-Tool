@@ -131,6 +131,9 @@ def ingest_sms(
     # Accept "processed", "success", and "duplicate_submission"
     status = parser_response.get("status") if parser_response else "offline"
     
+    if status == "ignored":
+        return {"status": "skipped", "message": "Ignored by parser (Non-financial)"}
+
     if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
         # Capture as unparsed for training
         IngestionService.capture_unparsed(db, str(current_user.tenant_id), "SMS", payload.message, sender=payload.sender)
@@ -226,6 +229,9 @@ def ingest_email(
     
     status = parser_response.get("status") if parser_response else "offline"
     
+    if status == "ignored":
+        return {"status": "skipped", "message": "Ignored by parser (Non-financial)"}
+
     if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
         IngestionService.log_event(
             db, str(current_user.tenant_id), "email_ingestion", "error",
@@ -462,18 +468,35 @@ def sync_specific_email(
     return result
 
 @router.post("/csv/analyze")
-
 async def analyze_file(
     file: UploadFile = File(...),
     current_user: auth_models.User = Depends(get_current_user)
 ):
     """
-    Auto-detect header row and return preview.
+    Auto-detect header row and return preview via External Parser.
     """
     try:
         content = await file.read()
-        analysis = UniversalParser.analyze(content, file.filename)
-        return analysis
+        
+        # Call External Parser without mapping to trigger analysis
+        from backend.app.modules.ingestion.parser_service import ExternalParserService
+        response = ExternalParserService.parse_file(content, file.filename)
+        
+        # Microservice returns "analysis_required" and puts analysis JSON in logs[0]
+        # logic from parser/api/ingestion.py: logs=["No mapping found. Analysis: " + json.dumps(analysis)]
+        
+        if response and response.get("status") == "analysis_required":
+            logs = response.get("logs", [])
+            if logs:
+                import re
+                # Extract JSON from "No mapping found. Analysis: {...}"
+                match = re.search(r"Analysis: ({.*})", logs[0])
+                if match:
+                    return json.loads(match.group(1))
+        
+        # Fallback or error
+        raise HTTPException(status_code=400, detail=f"Analysis failed: {response.get('logs') if response else 'Unknown error'}")
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -487,14 +510,33 @@ async def parse_file(
     current_user: auth_models.User = Depends(get_current_user)
 ):
     """
-    Parse CSV/Excel and return rows.
+    Parse CSV/Excel and return rows via External Parser.
     """
     try:
         mapping_dict = json.loads(mapping)
         content = await file.read()
-        # Pass filename to detect extension
-        parsed = UniversalParser.parse(content, file.filename, mapping_dict, header_row_index)
-        return parsed
+        
+        from backend.app.modules.ingestion.parser_service import ExternalParserService
+        response = ExternalParserService.parse_file(content, file.filename, mapping_dict, header_row_index=header_row_index)
+        
+        if response:
+             if response.get("status") == "success":
+                # Transform IngestionResult back to flat list of transactions
+                results = response.get("results", [])
+                flat_txns = []
+                for item in results:
+                    txn = item.get("transaction")
+                    if txn:
+                        flat_txns.append(txn)
+                return flat_txns
+             else:
+                 # Check for logs
+                 logs = response.get("logs", [])
+                 detail_msg = f"Parsing failed: {logs[0] if logs else 'Unknown error'}"
+                 raise HTTPException(status_code=400, detail=detail_msg)
+            
+        raise HTTPException(status_code=400, detail=f"Parsing failed: {response.get('logs') if response else 'Unknown error'}")
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -507,6 +549,7 @@ class ImportItem(BaseModel):
     amount: float
     type: str # DEBIT/CREDIT
     external_id: Optional[str] = None
+    ref_id: Optional[str] = None # Parser returns ref_id
     balance: Optional[float] = None
     credit_limit: Optional[float] = None
     is_transfer: bool = False
@@ -544,13 +587,22 @@ def import_csv(
                  category="Uncategorized",
                  tags=[],
                  source=payload.source,
-                 external_id=txn.external_id
+                 external_id=txn.external_id or txn.ref_id
              )
              TransactionService.create_transaction(db, txn_create, str(current_user.tenant_id))
              success_count += 1
         except Exception as e:
             errors.append(f"Row {idx+1}: {str(e)}")
             
+    IngestionService.log_event(
+        db, 
+        str(current_user.tenant_id), 
+        "bulk_import", 
+        "success" if success_count > 0 else "failed",
+        f"Imported {success_count} transactions from {payload.source}",
+        data={"source": payload.source, "success_count": success_count, "error_count": len(errors), "total": len(payload.transactions)}
+    )
+
     return {
         "status": "completed",
         "imported": success_count,
@@ -754,20 +806,23 @@ def label_message(
     db.add(pending)
     
     # Pattern Generation Logic
+    # Pattern Generation Logic
     if payload.generate_pattern:
         try:
             pattern_str, mapping_json = PatternGenerator.generate_regex_and_config(msg.raw_content, payload.dict(), txn_type=payload.type)
-            new_pattern = ingestion_models.ParsingPattern(
-                tenant_id=str(current_user.tenant_id),
-                pattern_type=msg.source,
-                pattern_value=pattern_str,
-                mapping_config=mapping_json,
-                is_active=True,
-                description=f"Auto-learned from: {payload.recipient or 'Unknown'}"
+            
+            # Send to External Parser Service
+            from backend.app.modules.ingestion.parser_service import ExternalParserService
+            import json
+            
+            ExternalParserService.create_pattern(
+                source=msg.source,
+                regex_pattern=pattern_str,
+                mapping=json.loads(mapping_json)
             )
-            db.add(new_pattern)
-            pass
+            # Legacy local save removed to enforce single source of truth
         except Exception as e:
+            print(f"Error creating pattern: {e}")
             pass
         
     db.delete(msg)

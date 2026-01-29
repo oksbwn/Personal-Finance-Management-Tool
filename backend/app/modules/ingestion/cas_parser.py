@@ -1,171 +1,60 @@
-import casparser
-from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 import os
 import tempfile
 import imaplib
 import email
 from email.header import decode_header
-import httpx
-from sqlalchemy.orm import Session
-from backend.app.modules.finance.services.mutual_funds import MutualFundService
 
 class CASParser:
     """
-    Parses Consolidated Account Statements (CAS) from CAMS/KFintech using the casparser library.
+    Parses Consolidated Account Statements (CAS) using the External Parser Service.
     """
 
     @staticmethod
     def parse_pdf(file_path: str, password: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Parses a CAS PDF using the casparser library and flattens the result into a list of transactions.
+        Parses a CAS PDF using the External Parser Microservice.
         """
-        flattened_transactions = []
         try:
-            # Use casparser to read the PDF
-            # Output structure:
-            # {
-            #   "file_type": "CAMS" | "KFINTECH",
-            #   "folios": [
-            #     {
-            #       "folio": "...",
-            #       "schemes": [
-            #         {
-            #           "scheme": "...",
-            #           "transactions": [
-            #             { "date": "...", "description": "...", "amount": ..., "units": ..., "nav": ..., "balance": ..., "type": "..." }
-            #           ]
-            #         }
-            #       ]
-            #     }
-            #   ]
-            # }
-            try:
-                print(f"Attempting standard parse for {file_path}...")
-                print(f"CASParser Version: {casparser.__version__}")
-                data = casparser.read_cas_pdf(file_path, password, output="dict")
-                print("Standard parse successful")
-            except Exception as e:
-                # "Layout Error! Scheme found before folio entry" is common with CAMS/KFintech quirks
-                print(f"Standard parse failed: {e}. Retrying with force_pdfminer=True")
-                try:
-                    data = casparser.read_cas_pdf(file_path, password, output="dict", force_pdfminer=True)
-                    print("Force pdfminer parse successful")
-                except Exception as e2:
-                    print(f"Force pdfminer failed: {e2}")
-                    raise ValueError(f"CAS Parsing failed (Standard: {e}, PDFMiner: {e2})")
+             # Read file content
+            with open(file_path, "rb") as f:
+                content = f.read()
+
+            from backend.app.modules.ingestion.parser_service import ExternalParserService
             
-            # Force generic object handling because simple "dict" output seems unreliable across versions/envs
-            if not isinstance(data, dict):
-                if hasattr(data, "to_dict"):
-                    data = data.to_dict()
-                elif hasattr(data, "dict"):
-                    data = data.dict()
-
-            # Helper to get attribute or dict item safely
-            def get_val(obj, key, default=None):
-                if isinstance(obj, dict):
-                    return obj.get(key, default)
-                return getattr(obj, key, default)
-
-            folios = get_val(data, "folios", [])
-            cas_type = get_val(data, "cas_type", "UNKNOWN")
+            # Call Microservice
+            response = ExternalParserService.parse_cas(content, password or "")
             
+            if not response or response.get("status") != "success":
+                raise ValueError(f"CAS Parsing failed via microservice: {response.get('logs') if response else 'Unknown Error'}")
 
-            # Check if it's a Summary statement with no data
-            if len(folios) == 0 and cas_type == "SUMMARY":
-                 raise ValueError("The uploaded file appears to be a 'Summary Statement'. Please upload a 'Detailed Transaction Statement' (e.g., from date of inception) to import your full history.")
-                 
-            # Fallback: If 0 folios and NOT explicitly summary (or maybe misidentified), try force_pdfminer
-            if len(folios) == 0:
-                try:
-                    data = casparser.read_cas_pdf(file_path, password, output="dict", force_pdfminer=True)
-                    if not isinstance(data, dict):
-                         if hasattr(data, "to_dict"):
-                            data = data.to_dict()
-                         elif hasattr(data, "dict"):
-                            data = data.dict()
-                    
-                    folios = get_val(data, "folios", [])
-                except Exception:
-                    pass
-            
-            for folio in folios:
-                folio_number = get_val(folio, "folio", "Unknown")
-                schemes = get_val(folio, "schemes", [])
-                
-                for scheme in schemes:
-                    scheme_name = get_val(scheme, "scheme", "Unknown Scheme")
-                    amfi = get_val(scheme, "amfi", None)
-                    isin = get_val(scheme, "isin", None)
-                    
-                    transactions = get_val(scheme, "transactions", [])
-                    
-                    for txn in transactions:
-                        # Convert date string to datetime object
-                        # casparser returns date in 'YYYY-MM-DD' usually OR a date object
-                        raw_date = get_val(txn, "date")
-                        txn_date = None
+            # Microservice returns List[ParsedItem] in 'results'
+            results = response.get("results", [])
+            transactions = []
+            for item in results:
+                if item.get("transaction"):
+                    # The backend expects raw dicts that it mapping logic can handle
+                    # but since these are already standardized, we need to ensure they have 
+                    # the keys expected by MutualFundService.map_transactions_to_schemes
+                    t = item["transaction"]
+                    meta = item.get("metadata", {})
+                    transactions.append({
+                        "date": t.get("date"),
+                        "amount": t.get("amount"),
+                        "type": t.get("type"),
+                        "scheme_name": t.get("description") or t.get("merchant", {}).get("cleaned"),
+                        "folio_number": t.get("ref_id") or t.get("account", {}).get("mask"),
+                        "units": meta.get("units", 0),
+                        "nav": meta.get("nav", 0),
+                        "amfi": meta.get("amfi"),
+                        "isin": meta.get("isin")
+                    })
 
-                        if isinstance(raw_date, (datetime, date)):
-                             txn_date = raw_date
-                        elif isinstance(raw_date, str):
-                            try:
-                                txn_date = datetime.strptime(raw_date, "%Y-%m-%d")
-                            except ValueError:
-                                # Fallback or keep string? The Service expects datetime usually
-                                try:
-                                    txn_date = datetime.strptime(raw_date, "%d-%b-%Y")
-                                except:
-                                    pass
+            return transactions
 
-                        if not txn_date:
-                            continue # Skip invalid dates
-
-                        # SKIP non-investment transactions (Taxes, Stamp Duty)
-                        description = get_val(txn, "description", "")
-                        if "Stamp Duty" in description or "STT" in description or "Tax" in description:
-                             continue
-
-                        # Map casparser transaction type to our system's type if needed
-                        # casparser transactions usually have type
-                        t_type = get_val(txn, "type", "").upper()
-                        final_type = "BUY"
-                        amount = get_val(txn, "amount", 0) or 0
-                        if "REDEMPTION" in t_type or "SWITCH OUT" in t_type or amount < 0:
-                            final_type = "SELL"
-                        
-                        # Handle specific purchase types
-                        if "PURCHASE" in t_type or "SWITCH IN" in t_type:
-                            final_type = "BUY"
-                            
-                        units = get_val(txn, "units")
-                        nav = get_val(txn, "nav")
-
-                        flattened_transactions.append({
-                            "date": txn_date,
-                            "scheme_name": scheme_name,
-                            "amfi": amfi,
-                            "isin": isin,
-                            "folio_number": folio_number,
-                            "type": final_type,
-                            "amount": abs(float(amount)),
-                            "units": float(units or 0.0),
-                            "nav": float(nav or 0.0),
-                            "raw_line": get_val(txn, "description", ""),
-                            "external_id": get_val(txn, "external_id") 
-                        })
-                
-                
         except Exception as e:
+            print(f"Error parsing CAS via microservice: {e}")
             raise e
-            
-        return flattened_transactions
-
-    @staticmethod
-    def _extract_transactions_from_text(text: str) -> List[Dict[str, Any]]:
-        # Deprecated: usage of casparser library replaces this method
-        return []
 
     @staticmethod
     def scan_cas_emails(
@@ -202,7 +91,8 @@ class CASParser:
                 for part in msg.walk():
                     if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None:
                         continue
-                        
+                     
+                    filename = part.get_filename()
                     if filename and filename.lower().endswith('.pdf'):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
                             f.write(part.get_payload(decode=True))

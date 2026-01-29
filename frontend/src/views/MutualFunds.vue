@@ -6,10 +6,10 @@ import LineChart from '@/components/LineChart.vue'
 import { financeApi, aiApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
-import { 
+import {
     Search,
-    Plus, 
-    Upload, 
+    Plus,
+    Upload,
     RefreshCw,
     Lock,
     FileText,
@@ -121,7 +121,7 @@ const periodOptions = [
 // Helpers
 function getRandomColor(str: string) {
     const colors = [
-        '#6366f1', '#3b82f6', '#06b6d4', '#10b981', 
+        '#6366f1', '#3b82f6', '#06b6d4', '#10b981',
         '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
     ]
     let hash = 0
@@ -139,6 +139,8 @@ const isConfirmingImport = ref(false)
 const showReviewModal = ref(false)
 
 function toggleTransactionSelection(index: number) {
+    if (mappedTransactions.value[index].is_duplicate) return
+
     if (selectedTransactions.value.has(index)) {
         selectedTransactions.value.delete(index)
     } else {
@@ -147,10 +149,15 @@ function toggleTransactionSelection(index: number) {
 }
 
 function selectAllTransactions() {
-    if (selectedTransactions.value.size === mappedTransactions.value.length) {
+    if (selectedTransactions.value.size === mappedTransactions.value.filter(t => !t.is_duplicate).length) {
         selectedTransactions.value.clear()
     } else {
-        selectedTransactions.value = new Set(mappedTransactions.value.keys())
+        selectedTransactions.value = new Set(
+            mappedTransactions.value
+                .map((t, i) => ({ t, i }))
+                .filter(({ t }) => !t.is_duplicate && t.scheme_code)
+                .map(({ i }) => i)
+        )
     }
 }
 
@@ -179,11 +186,11 @@ const portfolioStats = computed(() => {
 
 function generateSparklinePoints(data: number[], width: number, height: number): string {
     if (!data || data.length < 2) return ''
-    
+
     const min = Math.min(...data)
     const max = Math.max(...data)
     const range = max - min || 1
-    
+
     return data.map((value, index) => {
         const x = (index / (data.length - 1)) * width
         const y = height - ((value - min) / range) * height
@@ -224,7 +231,7 @@ async function fetchPerformanceTimeline() {
     isLoadingTimeline.value = true
     try {
         const res = await financeApi.getPerformanceTimeline(
-            selectedPeriod.value, 
+            selectedPeriod.value,
             selectedGranularity.value,
             selectedMember.value || undefined
         )
@@ -283,9 +290,9 @@ function toggleGroup(id: string) {
 
 const groupedPortfolio = computed(() => {
     if (!portfolio.value) return []
-    
+
     const groups: Record<string, any> = {}
-    
+
     for (const holding of portfolio.value) {
         const code = holding.scheme_code
         if (!groups[code]) {
@@ -300,20 +307,20 @@ const groupedPortfolio = computed(() => {
             groups[code].children.push(holding)
         }
     }
-    
+
     return Object.values(groups).map(group => {
         if (group.is_group_parent) {
             // Aggregate totals
             let totalUnits = 0
             let totalInvested = 0
             let totalCurrent = 0
-            
+
             group.children.forEach((h: any) => {
                 totalUnits += Number(h.units)
                 totalInvested += Number(h.invested_value)
                 totalCurrent += Number(h.current_value)
             })
-            
+
             return {
                 ...group,
                 units: totalUnits,
@@ -334,26 +341,26 @@ const sortedPortfolio = computed(() => {
     return [...groupedPortfolio.value].sort((a, b) => {
         let valA = a[sortKey.value]
         let valB = b[sortKey.value]
-        
+
         // Handle numbers
         if (typeof valA === 'number' && typeof valB === 'number') {
             return sortDesc.value ? valB - valA : valA - valB
         }
-        
+
         // Handle strings
         if (typeof valA === 'string' && typeof valB === 'string') {
-            return sortDesc.value 
-                ? valB.localeCompare(valA) 
+            return sortDesc.value
+                ? valB.localeCompare(valA)
                 : valA.localeCompare(valB)
         }
-        
+
         return 0
     })
 })
 
 const latestNavDate = computed(() => {
     if (!portfolio.value || portfolio.value.length === 0) return null
-    
+
     // Find the latest date string
     let maxDate = ''
     for (const h of portfolio.value) {
@@ -374,7 +381,7 @@ function confirmDelete(holding: any) {
 
 async function proceedDelete() {
     if (!holdingToDelete.value) return
-    
+
     try {
         await financeApi.deleteHolding(holdingToDelete.value.id)
         notify.success("Holding removed successfully")
@@ -391,23 +398,23 @@ async function proceedDelete() {
 
 async function handleSearch() {
     if ((!searchQuery.value || searchQuery.value.length < 2) && activeFilter.value === 'All') return
-    
+
     isSearching.value = true
     searchOffset.value = 0 // Reset pagination
     hasMoreResults.value = true
-    
+
     try {
         const query = searchQuery.value.length >= 2 ? searchQuery.value : undefined
         const category = activeFilter.value !== 'All' ? activeFilter.value : undefined
-        
+
         const response = await financeApi.searchFunds(query, category, undefined, searchLimit, 0, sortBy.value)
-        
+
         searchResults.value = response.data.map((f: any) => ({
             ...f,
             category: f.schemeName.includes('Equity') ? 'Equity' : (f.schemeName.includes('Debt') ? 'Debt' : 'Hybrid'),
             returns3Y: getMockReturns(f.schemeCode)
         }))
-        
+
         if (response.data.length < searchLimit) {
             hasMoreResults.value = false
         }
@@ -422,16 +429,16 @@ async function handleSearch() {
 
 async function loadMoreResults() {
     if (isLoadingMore.value || !hasMoreResults.value) return
-    
+
     isLoadingMore.value = true
     searchOffset.value += searchLimit
-    
+
     try {
         const query = searchQuery.value.length >= 2 ? searchQuery.value : undefined
         const category = activeFilter.value !== 'All' ? activeFilter.value : undefined
-        
+
         const response = await financeApi.searchFunds(query, category, undefined, searchLimit, searchOffset.value, sortBy.value)
-        
+
         if (response.data.length > 0) {
             const newFunds = response.data.map((f: any) => ({
                 ...f,
@@ -439,7 +446,7 @@ async function loadMoreResults() {
                 returns3Y: getMockReturns(f.schemeCode)
             }))
             searchResults.value = [...searchResults.value, ...newFunds]
-            
+
             if (response.data.length < searchLimit) {
                 hasMoreResults.value = false
             }
@@ -514,16 +521,16 @@ async function submitTransaction() {
 
 async function handleCasUpload() {
     if (!pdfImportFile.value) return
-    
+
     isPdfImporting.value = true
     mappedTransactions.value = []
     selectedTransactions.value.clear()
-    
+
     try {
         const formData = new FormData()
         formData.append('file', pdfImportFile.value)
         formData.append('password', pdfImportPassword.value)
-        
+
         const res = await financeApi.previewCAS(formData)
         mappedTransactions.value = res.data.transactions
         // Pre-select only NEW transactions (not duplicates)
@@ -591,7 +598,7 @@ async function confirmImport() {
         const res = await financeApi.confirmImport(toImport)
         showReviewModal.value = false
         fetchPortfolio()
-        
+
         const processed = res.data?.processed || toImport.length
         const failed = res.data?.failed || 0
         notify.success(`Successfully imported ${processed} transaction${processed !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`)
@@ -626,12 +633,12 @@ async function generateAIAnalysis() {
                 category: h.category || 'Unknown'
             }))
         }
-        
+
         const res = await aiApi.generateSummaryInsights(summary)
         if (res.data && res.data.insights) {
-             aiAnalysis.value = res.data.insights
+            aiAnalysis.value = res.data.insights
         } else {
-             aiAnalysis.value = "AI could not generate insights at this time."
+            aiAnalysis.value = "AI could not generate insights at this time."
         }
     } catch (error) {
         notify.error("Failed to generate analysis")
@@ -650,13 +657,13 @@ onMounted(async () => {
     try {
         const res = await financeApi.getMe()
         currentUser.value = res.data
-        
+
         // Pre-fill PAN if available
         if (currentUser.value?.pan_number) {
             pdfImportPassword.value = currentUser.value.pan_number.toUpperCase()
             emailImportPassword.value = currentUser.value.pan_number.toUpperCase()
         }
-        
+
         // Fetch family members for attribution
         fetchFamilyMembers()
     } catch (e) {
@@ -670,16 +677,16 @@ watch(activeTab, async (newTab) => {
         // Load Portfolio secondaries if not present
         if (!analytics.value) fetchAnalytics()
         if (!performanceData.value) fetchPerformanceTimeline()
-    } 
+    }
     else if (newTab === 'search') {
         // Load Search data only when tab is active
         if (marketIndices.value.length > 0 && marketIndices.value[0].value === 'Unavailable') {
             // Only fetch if currently in default/error state
-            fetchMarketIndices() 
+            fetchMarketIndices()
         } else if (marketIndices.value[0].value === 'Loading...') {
-             fetchMarketIndices()
+            fetchMarketIndices()
         }
-        
+
         // Trigger initial search if empty
         if (searchResults.value.length === 0) {
             handleSearch()
@@ -693,19 +700,19 @@ async function fetchMarketIndices() {
         if (res.data && res.data.length > 0) {
             marketIndices.value = res.data
         } else {
-             marketIndices.value = [
+            marketIndices.value = [
                 { name: 'NIFTY 50', value: 'Unavailable', change: '0.00', percent: '0.00%', isUp: true },
                 { name: 'SENSEX', value: 'Unavailable', change: '0.00', percent: '0.00%', isUp: true },
                 { name: 'BANK NIFTY', value: 'Unavailable', change: '0.00', percent: '0.00%', isUp: true }
-             ]
+            ]
         }
     } catch (error) {
-         console.error('Failed to fetch indices:', error)
-         marketIndices.value = [
+        console.error('Failed to fetch indices:', error)
+        marketIndices.value = [
             { name: 'NIFTY 50', value: 'Error', change: '0.00', percent: '0.00%', isUp: true },
             { name: 'SENSEX', value: 'Error', change: '0.00', percent: '0.00%', isUp: true },
             { name: 'BANK NIFTY', value: 'Error', change: '0.00', percent: '0.00%', isUp: true }
-         ]
+        ]
     }
 }
 
@@ -740,7 +747,7 @@ watch(selectedMember, () => {
     analytics.value = null
     performanceData.value = null
     aiAnalysis.value = ''
-    
+
     if (activeTab.value === 'portfolio') {
         fetchAnalytics()
         fetchPerformanceTimeline()
@@ -784,18 +791,18 @@ function getSparklinePath(points: number[]): string {
     const min = Math.min(...points)
     const max = Math.max(...points)
     const range = max - min || 1
-    
+
     // Normalize points to fit SVG viewbox 0 0 width height
     // Step X
     const stepX = width / (points.length - 1)
-    
+
     const path = points.map((p, i) => {
         const x = i * stepX
         // Invert Y axis for SVG (0 is top)
         const y = height - ((p - min) / range) * height
         return `${i === 0 ? 'M' : 'L'} ${x},${y}`
     }).join(' ')
-    
+
     return path
 }
 </script>
@@ -806,25 +813,14 @@ function getSparklinePath(points: number[]): string {
             <div class="header-left">
                 <h1 class="page-title">Mutual Funds</h1>
                 <div class="header-tabs">
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'portfolio' }"
-                        @click="activeTab = 'portfolio'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'portfolio' }"
+                        @click="activeTab = 'portfolio'">
                         Portfolio
                     </button>
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'search' }"
-                        @click="activeTab = 'search'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">
                         Search & Add
                     </button>
-                    <button 
-                        class="tab-btn" 
-                        :class="{ active: activeTab === 'import' }"
-                        @click="activeTab = 'import'"
-                    >
+                    <button class="tab-btn" :class="{ active: activeTab === 'import' }" @click="activeTab = 'import'">
                         Import CAS
                     </button>
                 </div>
@@ -862,19 +858,20 @@ function getSparklinePath(points: number[]): string {
                                 <div class="ai-sparkle-icon">✨</div>
                                 <div class="ai-title-group">
                                     <h3 class="ai-card-title">Portfolio Intelligence</h3>
-                                    <p class="ai-card-subtitle">AI analysis of holdings, sector risk, and performance</p>
+                                    <p class="ai-card-subtitle">AI analysis of holdings, sector risk, and performance
+                                    </p>
                                 </div>
                             </div>
-                            <button 
-                                @click="generateAIAnalysis"
-                                :disabled="isAnalyzing"
-                                class="ai-btn-glass"
-                            >
-                                <svg v-if="!isAnalyzing" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>
+                            <button @click="generateAIAnalysis" :disabled="isAnalyzing" class="ai-btn-glass">
+                                <svg v-if="!isAnalyzing" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2.5">
+                                    <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path d="M9 12l2 2 4-4" />
+                                </svg>
                                 {{ isAnalyzing ? 'Analyzing...' : 'Refresh Analysis' }}
                             </button>
                         </div>
-                        
+
                         <div v-if="aiAnalysis" class="ai-insight-box custom-scrollbar">
                             <div class="ai-insight-text markdown-body" v-html="marked(aiAnalysis)"></div>
                         </div>
@@ -884,7 +881,8 @@ function getSparklinePath(points: number[]): string {
                             <div class="shimmer-line w-1/2"></div>
                         </div>
                         <p v-else class="ai-card-description">
-                            Let AI analyze your asset allocation and sector exposure to suggest optimal rebalancing strategies.
+                            Let AI analyze your asset allocation and sector exposure to suggest optimal rebalancing
+                            strategies.
                         </p>
                     </div>
                     <!-- Standard Mesh Blobs -->
@@ -915,7 +913,8 @@ function getSparklinePath(points: number[]): string {
                                 <span class="card-label">Current Value</span>
                                 <span class="card-value">{{ formatAmount(portfolioStats.current) }}</span>
                                 <span class="card-trend text-emerald-600">
-                                    {{ portfolioStats.pl >= 0 ? '↑' : '↓' }} {{ Math.abs(portfolioStats.plPercent).toFixed(2) }}% Returns
+                                    {{ portfolioStats.pl >= 0 ? '↑' : '↓' }} {{
+                                        Math.abs(portfolioStats.plPercent).toFixed(2) }}% Returns
                                 </span>
                             </div>
                         </div>
@@ -924,12 +923,9 @@ function getSparklinePath(points: number[]): string {
                             <div class="card-content">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                     <span class="card-label">Invested Amount</span>
-                                    <button 
-                                        @click="cleanupDuplicates" 
-                                        class="btn-ghost" 
+                                    <button @click="cleanupDuplicates" class="btn-ghost"
                                         style="padding: 2px 6px; font-size: 10px; color: #94a3b8; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer;"
-                                        title="Cleanup duplicate transactions and sync data"
-                                    >Fix Data</button>
+                                        title="Cleanup duplicate transactions and sync data">Fix Data</button>
                                 </div>
                                 <span class="card-value">{{ formatAmount(portfolioStats.invested) }}</span>
                                 <span class="card-trend text-indigo-600"> Across {{ portfolio.length }} Funds</span>
@@ -939,12 +935,15 @@ function getSparklinePath(points: number[]): string {
                             <div class="card-icon">📈</div>
                             <div class="card-content">
                                 <span class="card-label">Overall Profit/Loss</span>
-                                <span class="card-value" :class="portfolioStats.pl >= 0 ? 'text-emerald-700' : 'text-rose-700'">
+                                <span class="card-value"
+                                    :class="portfolioStats.pl >= 0 ? 'text-emerald-700' : 'text-rose-700'">
                                     {{ portfolioStats.pl >= 0 ? '+' : '' }}{{ formatAmount(portfolioStats.pl) }}
                                 </span>
-                                 <span class="card-trend" :class="analytics && analytics.xirr !== null && analytics.xirr >= 0 ? 'text-emerald-600' : 'text-rose-600'">
-                                    {{ analytics && analytics.xirr !== null ? `${analytics.xirr.toFixed(2)}% XIRR` : 'XIRR: N/A' }}
-                                 </span>
+                                <span class="card-trend"
+                                    :class="analytics && analytics.xirr !== null && analytics.xirr >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                                    {{ analytics && analytics.xirr !== null ? `${analytics.xirr.toFixed(2)}% XIRR` :
+                                        'XIRR: N/A' }}
+                                </span>
                             </div>
                         </div>
                     </template>
@@ -952,19 +951,20 @@ function getSparklinePath(points: number[]): string {
 
                 <!-- Holdings List (Standard Table) -->
                 <div class="analytics-card full-width">
-                     <div class="card-header-flex">
+                    <div class="card-header-flex">
                         <div>
                             <h3 class="card-title">Portfolio Holdings</h3>
-                            <p v-if="latestNavDate" class="text-xs text-gray-400 font-medium mt-0.5">NAV as of {{ latestNavDate }}</p>
+                            <p v-if="latestNavDate" class="text-xs text-gray-400 font-medium mt-0.5">NAV as of {{
+                                latestNavDate }}</p>
                         </div>
                         <div class="card-controls">
-                             <!-- Optional controls here -->
+                            <!-- Optional controls here -->
                         </div>
                     </div>
-                    
+
                     <div class="table-container">
-                         <!-- Skeleton Loader -->
-                         <div v-if="isLoading" class="skeleton-table">
+                        <!-- Skeleton Loader -->
+                        <div v-if="isLoading" class="skeleton-table">
                             <div class="skeleton-header"></div>
                             <div v-for="i in 5" :key="i" class="skeleton-row">
                                 <div class="skeleton-cell w-1/3"></div>
@@ -976,76 +976,99 @@ function getSparklinePath(points: number[]): string {
                                 <div class="skeleton-cell w-24"></div>
                                 <div class="skeleton-cell w-20"></div>
                             </div>
-                         </div>
+                        </div>
 
-                         <div v-else-if="portfolio.length === 0" class="py-12 text-center">
+                        <div v-else-if="portfolio.length === 0" class="py-12 text-center">
                             <div class="text-4xl mb-3">🌱</div>
                             <h3 class="text-gray-900 font-bold">No investments found</h3>
                             <p class="text-gray-500 text-sm">Add funds or import CAS to start tracking.</p>
                         </div>
-                        
+
                         <table v-else class="modern-table">
                             <thead>
                                 <tr class="bg-gray-50/50 border-b border-gray-100">
-                                    <th style="width: 32%" @click="handleSort('scheme_name')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
-                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'scheme_name' }">
+                                    <th style="width: 32%" @click="handleSort('scheme_name')"
+                                        class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'scheme_name' }">
                                             Fund Name
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'scheme_name' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'scheme_name' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'scheme_name'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none">Member</th>
-                                    <th @click="handleSort('units')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
-                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'units' }">
+                                    <th
+                                        class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none">
+                                        Member</th>
+                                    <th @click="handleSort('units')"
+                                        class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'units' }">
                                             Units
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'units' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'units' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'units'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th @click="handleSort('average_price')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
-                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'average_price' }">
+                                    <th @click="handleSort('average_price')"
+                                        class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'average_price' }">
                                             Avg Price
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'average_price' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'average_price' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'average_price'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th @click="handleSort('last_nav')" class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
-                                        <div class="flex items-center gap-1" :class="{ 'text-indigo-600': sortKey === 'last_nav' }">
+                                    <th @click="handleSort('last_nav')"
+                                        class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none">
+                                        <div class="flex items-center gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'last_nav' }">
                                             Current NAV
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'last_nav' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'last_nav' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'last_nav'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('invested_value')">
-                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'invested_value' }">
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none"
+                                        @click="handleSort('invested_value')">
+                                        <div class="flex items-center justify-end gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'invested_value' }">
                                             Invested
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'invested_value' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'invested_value' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'invested_value'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('current_value')">
-                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'current_value' }">
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none"
+                                        @click="handleSort('current_value')">
+                                        <div class="flex items-center justify-end gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'current_value' }">
                                             Current Value
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'current_value' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'current_value' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'current_value'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
                                         </div>
                                     </th>
-                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none" @click="handleSort('profit_loss')">
-                                        <div class="flex items-center justify-end gap-1" :class="{ 'text-indigo-600': sortKey === 'profit_loss' }">
+                                    <th class="py-3 px-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors group select-none"
+                                        @click="handleSort('profit_loss')">
+                                        <div class="flex items-center justify-end gap-1"
+                                            :class="{ 'text-indigo-600': sortKey === 'profit_loss' }">
                                             Returns
-                                            <span class="text-indigo-500 transition-opacity duration-200" :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'profit_loss' }">
+                                            <span class="text-indigo-500 transition-opacity duration-200"
+                                                :class="{ 'opacity-0 group-hover:opacity-100': sortKey !== 'profit_loss' }">
                                                 <ArrowDown v-if="sortDesc || sortKey !== 'profit_loss'" :size="14" />
                                                 <ArrowUp v-else :size="14" />
                                             </span>
@@ -1056,48 +1079,51 @@ function getSparklinePath(points: number[]): string {
                             </thead>
                             <tbody>
                                 <template v-for="item in sortedPortfolio" :key="item.id">
-                                    <tr class="clickable-row" :class="{ 'bg-indigo-50/30': item.has_multiple && expandedGroups.has(item.id) }">
+                                    <tr class="clickable-row"
+                                        :class="{ 'bg-indigo-50/30': item.has_multiple && expandedGroups.has(item.id) }">
                                         <td style="position: relative;">
                                             <!-- Color Accent Bar -->
-                                            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;" 
-                                                 :style="{ background: getRandomColor(item.scheme_name) }"></div>
-                                            
+                                            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;"
+                                                :style="{ background: getRandomColor(item.scheme_name) }"></div>
+
                                             <div class="flex items-start">
                                                 <!-- Expand Toggle for Groups -->
-                                                <button 
-                                                    v-if="item.has_multiple"
-                                                    @click.stop="toggleGroup(item.id)"
-                                                    class="mr-2 mt-1 p-0.5 rounded hover:bg-gray-200 text-gray-500 transition-colors"
-                                                >
+                                                <button v-if="item.has_multiple" @click.stop="toggleGroup(item.id)"
+                                                    class="mr-2 mt-1 p-0.5 rounded hover:bg-gray-200 text-gray-500 transition-colors">
                                                     <ChevronDown v-if="expandedGroups.has(item.id)" :size="16" />
                                                     <ChevronRight v-else :size="16" />
                                                 </button>
                                                 <div v-else class="w-6 mr-2"></div> <!-- Spacer -->
 
-                                                <div @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)">
-                                                    <div class="font-medium text-gray-900 line-clamp-1 group-hover:text-indigo-600 transition-colors" :title="item.scheme_name">
+                                                <div
+                                                    @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)">
+                                                    <div class="font-medium text-gray-900 line-clamp-1 group-hover:text-indigo-600 transition-colors"
+                                                        :title="item.scheme_name">
                                                         {{ item.scheme_name }}
-                                                        <span v-if="item.has_multiple" class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                                                        <span v-if="item.has_multiple"
+                                                            class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
                                                             GROUP
                                                         </span>
                                                     </div>
-                                                    <div style="display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem;">
-                                                        <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #f1f5f9; color: #334155;">
+                                                    <div
+                                                        style="display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem;">
+                                                        <span
+                                                            style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #f1f5f9; color: #334155;">
                                                             {{ item.folio_number || 'No Folio' }}
                                                         </span>
-                                                        <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #e0e7ff; color: #4338ca; font-family: monospace;">
+                                                        <span
+                                                            style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #e0e7ff; color: #4338ca; font-family: monospace;">
                                                             {{ item.scheme_code }}
                                                         </span>
                                                         <!-- 30-Day NAV Sparkline -->
-                                                        <svg v-if="item.sparkline && item.sparkline.length > 1" width="50" height="16" style="margin-left: 0.25rem;">
-                                                            <polyline 
-                                                                :points="generateSparklinePoints(item.sparkline, 50, 16)" 
-                                                                fill="none" 
-                                                                :stroke="item.profit_loss >= 0 ? '#10b981' : '#ef4444'" 
-                                                                stroke-width="1.5"
-                                                                stroke-linecap="round"
-                                                                stroke-linejoin="round"
-                                                            />
+                                                        <svg v-if="item.sparkline && item.sparkline.length > 1"
+                                                            width="50" height="16" style="margin-left: 0.25rem;">
+                                                            <polyline
+                                                                :points="generateSparklinePoints(item.sparkline, 50, 16)"
+                                                                fill="none"
+                                                                :stroke="item.profit_loss >= 0 ? '#10b981' : '#ef4444'"
+                                                                stroke-width="1.5" stroke-linecap="round"
+                                                                stroke-linejoin="round" />
                                                         </svg>
                                                     </div>
                                                 </div>
@@ -1106,42 +1132,54 @@ function getSparklinePath(points: number[]): string {
                                         <td class="tabular-nums font-medium text-gray-700">
                                             <div class="flex items-center gap-2">
                                                 <div v-if="item.has_multiple" class="flex -space-x-2">
-                                                    <div class="w-6 h-6 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px]">👥</div>
+                                                    <div
+                                                        class="w-6 h-6 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px]">
+                                                        👥</div>
                                                 </div>
-                                                <div v-else-if="item.user_id && familyMembers.find(u => u.id === item.user_id)" 
-                                                     class="member-avatar-mini" 
-                                                     :title="familyMembers.find(u => u.id === item.user_id)?.full_name">
-                                                    {{ familyMembers.find(u => u.id === item.user_id)?.avatar || '👤' }}
+                                                <div v-else-if="item.user_id && familyMembers.find(u => u.id === item.user_id)"
+                                                    class="member-avatar-mini"
+                                                    :title="familyMembers.find(u => u.id === item.user_id)?.full_name">
+                                                    {{familyMembers.find(u => u.id === item.user_id)?.avatar || '👤'}}
                                                 </div>
                                                 <span v-else class="text-[10px] text-gray-400">Self</span>
                                             </div>
                                         </td>
-                                        <td class="tabular-nums font-medium text-gray-700">{{ item.units.toFixed(3) }}</td>
-                                        <td class="tabular-nums text-gray-500">{{ formatAmount(item.average_price) }}</td>
-                                        <td class="tabular-nums">
-                                            <div class="text-gray-900 font-medium">{{ formatAmount(item.last_nav) }}</div>
+                                        <td class="tabular-nums font-medium text-gray-700">{{ item.units.toFixed(3) }}
                                         </td>
-                                        <td class="tabular-nums font-medium text-gray-700">{{ formatAmount(item.invested_value) }}</td>
-                                        <td class="tabular-nums font-bold text-gray-900">{{ formatAmount(item.current_value) }}</td>
+                                        <td class="tabular-nums text-gray-500">{{ formatAmount(item.average_price) }}
+                                        </td>
+                                        <td class="tabular-nums">
+                                            <div class="text-gray-900 font-medium">{{ formatAmount(item.last_nav) }}
+                                            </div>
+                                        </td>
+                                        <td class="tabular-nums font-medium text-gray-700">{{
+                                            formatAmount(item.invested_value) }}</td>
+                                        <td class="tabular-nums font-bold text-gray-900">{{
+                                            formatAmount(item.current_value) }}</td>
                                         <td>
-                                            <div 
-                                                class="inline-flex flex-col items-end px-3 py-1.5 rounded-full border text-right min-w-[90px] shadow-sm"
-                                                :class="Number(item.profit_loss) >= 0 
-                                                    ? 'bg-green-100 text-green-800 border-green-200' 
-                                                    : 'bg-red-100 text-red-800 border-red-200'"
-                                            >
-                                                <div class="font-bold text-xs leading-none">{{ Number(item.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(item.profit_loss) }}</div>
+                                            <div class="inline-flex flex-col items-end px-3 py-1.5 rounded-full border text-right min-w-[90px] shadow-sm"
+                                                :class="Number(item.profit_loss) >= 0
+                                                    ? 'bg-green-100 text-green-800 border-green-200'
+                                                    : 'bg-red-100 text-red-800 border-red-200'">
+                                                <div class="font-bold text-xs leading-none">{{ Number(item.profit_loss)
+                                                    >= 0 ? '+' : '' }}{{ formatAmount(item.profit_loss) }}</div>
                                                 <div class="text-[10px] opacity-90 font-bold mt-0.5 leading-none">
-                                                    {{ ((Number(item.profit_loss) / (Number(item.invested_value) || 1)) * 100).toFixed(2) }}%
+                                                    {{ ((Number(item.profit_loss) / (Number(item.invested_value) || 1))
+                                                        * 100).toFixed(2) }}%
                                                 </div>
                                             </div>
                                         </td>
                                         <td style="white-space: nowrap; padding-left: 0.5rem; padding-right: 0.5rem;">
                                             <div class="flex items-center justify-end gap-2 flex-nowrap">
-                                                <button v-if="!item.has_multiple" class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100" @click="confirmDelete(item)" title="Remove Holding">
+                                                <button v-if="!item.has_multiple"
+                                                    class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100"
+                                                    @click="confirmDelete(item)" title="Remove Holding">
                                                     <Trash2 :size="14" />
                                                 </button>
-                                                <button class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100" @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)" title="View Details">
+                                                <button
+                                                    class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100"
+                                                    @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)"
+                                                    title="View Details">
                                                     <EyeIconMain :size="14" />
                                                 </button>
                                             </div>
@@ -1150,37 +1188,51 @@ function getSparklinePath(points: number[]): string {
 
                                     <!-- Child Rows -->
                                     <template v-if="item.has_multiple && expandedGroups.has(item.id)">
-                                        <tr v-for="child in item.children" :key="child.id" class="bg-gray-50 hover:bg-gray-100 transition-colors">
+                                        <tr v-for="child in item.children" :key="child.id"
+                                            class="bg-gray-50 hover:bg-gray-100 transition-colors">
                                             <td class="pl-12 py-2 relative">
-                                                <div class="absolute left-8 top-0 bottom-0 w-px bg-gray-200 border-l border-dashed border-gray-300"></div>
-                                                <div class="flex items-center gap-2" @click="$router.push(`/mutual-funds/${child.id}`)">
-                                                    <div class="text-xs font-mono text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                                                <div
+                                                    class="absolute left-8 top-0 bottom-0 w-px bg-gray-200 border-l border-dashed border-gray-300">
+                                                </div>
+                                                <div class="flex items-center gap-2"
+                                                    @click="$router.push(`/mutual-funds/${child.id}`)">
+                                                    <div
+                                                        class="text-xs font-mono text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded">
                                                         {{ child.folio_number || 'No Folio' }}
                                                     </div>
                                                 </div>
                                             </td>
                                             <td class="py-2">
                                                 <div class="flex items-center gap-2 opacity-80">
-                                                    <div v-if="child.user_id && familyMembers.find(u => u.id === child.user_id)" 
-                                                         class="member-avatar-mini w-5 h-5 text-[9px]" 
-                                                         :title="familyMembers.find(u => u.id === child.user_id)?.full_name">
-                                                        {{ familyMembers.find(u => u.id === child.user_id)?.avatar || '👤' }}
+                                                    <div v-if="child.user_id && familyMembers.find(u => u.id === child.user_id)"
+                                                        class="member-avatar-mini w-5 h-5 text-[9px]"
+                                                        :title="familyMembers.find(u => u.id === child.user_id)?.full_name">
+                                                        {{familyMembers.find(u => u.id === child.user_id)?.avatar ||
+                                                            '👤'}}
                                                     </div>
                                                     <span v-else class="text-[10px] text-gray-400">Self</span>
                                                 </div>
                                             </td>
-                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{ child.units.toFixed(3) }}</td>
-                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{ formatAmount(child.average_price) }}</td>
-                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{ formatAmount(child.last_nav) }}</td>
-                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{ formatAmount(child.invested_value) }}</td>
-                                            <td class="tabular-nums text-xs font-semibold text-gray-800 py-2">{{ formatAmount(child.current_value) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{
+                                                child.units.toFixed(3) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{
+                                                formatAmount(child.average_price) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-500 py-2">{{
+                                                formatAmount(child.last_nav) }}</td>
+                                            <td class="tabular-nums text-xs text-gray-600 py-2">{{
+                                                formatAmount(child.invested_value) }}</td>
+                                            <td class="tabular-nums text-xs font-semibold text-gray-800 py-2">{{
+                                                formatAmount(child.current_value) }}</td>
                                             <td class="py-2">
-                                                <span class="text-xs font-semibold" :class="Number(child.profit_loss) >= 0 ? 'text-green-600' : 'text-red-600'">
-                                                    {{ Number(child.profit_loss) >= 0 ? '+' : '' }}{{ formatAmount(child.profit_loss) }}
+                                                <span class="text-xs font-semibold"
+                                                    :class="Number(child.profit_loss) >= 0 ? 'text-green-600' : 'text-red-600'">
+                                                    {{ Number(child.profit_loss) >= 0 ? '+' : '' }}{{
+                                                        formatAmount(child.profit_loss) }}
                                                 </span>
                                             </td>
                                             <td class="px-2 py-2 text-right">
-                                                 <button class="text-xs text-indigo-500 hover:underline" @click="$router.push(`/mutual-funds/${child.id}`)">
+                                                <button class="text-xs text-indigo-500 hover:underline"
+                                                    @click="$router.push(`/mutual-funds/${child.id}`)">
                                                     Details
                                                 </button>
                                             </td>
@@ -1196,18 +1248,18 @@ function getSparklinePath(points: number[]): string {
             <!-- Portfolio Analytics Section (Only in Portfolio Tab) -->
             <div v-if="activeTab === 'portfolio' && analytics && portfolio.length > 0" class="analytics-section">
                 <h3 class="section-title">Portfolio Analytics</h3>
-                
+
                 <!-- Performance Timeline Chart (Full Width) -->
                 <div class="analytics-card performance-card" style="grid-column: 1 / -1;">
-                    <div class="card-header-flex" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div class="card-header-flex"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <h4 class="card-header" style="margin: 0;">Performance Timeline</h4>
                         <div style="display: flex; gap: 0.75rem; align-items: center;">
                             <!-- Granularity Selector -->
-                            <div class="granularity-selector" style="display: flex; gap: 0.25rem; align-items: center; background: #f8fafc; padding: 2px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                                <select 
-                                    v-model="selectedGranularity"
-                                    style="border: none; background: transparent; font-size: 11px; font-weight: 600; color: #64748b; padding: 2px 4px; outline: none; cursor: pointer;"
-                                >
+                            <div class="granularity-selector"
+                                style="display: flex; gap: 0.25rem; align-items: center; background: #f8fafc; padding: 2px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                <select v-model="selectedGranularity"
+                                    style="border: none; background: transparent; font-size: 11px; font-weight: 600; color: #64748b; padding: 2px 4px; outline: none; cursor: pointer;">
                                     <option value="1d">Daily</option>
                                     <option value="1w">Weekly</option>
                                     <option value="1m">Monthly</option>
@@ -1215,71 +1267,68 @@ function getSparklinePath(points: number[]): string {
                             </div>
 
                             <div class="period-selector" style="display: flex; gap: 0.5rem;">
-                                <button 
-                                    v-for="p in ['1m', '3m', '6m', '1y', 'all']"
-                                    :key="p"
-                                    :class="{active: selectedPeriod === p}"
-                                    @click="selectedPeriod = p"
+                                <button v-for="p in ['1m', '3m', '6m', '1y', 'all']" :key="p"
+                                    :class="{ active: selectedPeriod === p }" @click="selectedPeriod = p"
                                     style="padding: 0.375rem 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s;"
                                     :style="{
                                         background: selectedPeriod === p ? '#3b82f6' : 'white',
                                         color: selectedPeriod === p ? 'white' : '#64748b',
                                         borderColor: selectedPeriod === p ? '#3b82f6' : '#e2e8f0'
-                                    }"
-                                >{{ p.toUpperCase() }}</button>
+                                    }">{{ p.toUpperCase() }}</button>
                             </div>
-                            <button 
-                                @click="clearCacheAndRefresh"
+                            <button @click="clearCacheAndRefresh"
                                 style="padding: 0.375rem 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 0.375rem;"
-                                title="Clear cache and recalculate"
-                            >
+                                title="Clear cache and recalculate">
                                 <RefreshCw :size="14" />
                                 <span>Refresh</span>
                             </button>
                         </div>
                     </div>
-                    
+
                     <!-- Loading State -->
                     <div v-if="isLoadingTimeline" class="h-[320px] w-full relative">
-                         <div class="skeleton-chart-line pulse w-full h-[280px]"></div>
+                        <div class="skeleton-chart-line pulse w-full h-[280px]"></div>
                     </div>
-                    
+
                     <!-- Chart (Not Loading) -->
                     <div v-else-if="performanceData?.timeline && performanceData.timeline.length > 0">
-                        <LineChart 
-                            :data="performanceData.timeline" 
-                            :benchmark="performanceData.benchmark"
-                            :height="280" 
-                        />
+                        <LineChart :data="performanceData.timeline" :benchmark="performanceData.benchmark"
+                            :height="280" />
                     </div>
-                    
+
                     <!-- Empty State -->
                     <div v-else style="text-align: center; padding: 3rem; color: #94a3b8;">
                         No performance data available
                     </div>
                 </div>
-                
-                <div class="analytics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+
+                <div class="analytics-grid"
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                     <!-- Asset Allocation Donut Chart -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Asset Allocation</h4>
-                        <div v-if="isLoading && !analytics?.asset_allocation" class="h-[180px] flex items-center justify-center">
+                        <div v-if="isLoading && !analytics?.asset_allocation"
+                            class="h-[180px] flex items-center justify-center">
                             <div class="skeleton-chart-circle pulse"></div>
                         </div>
-                        <DonutChart v-else :data="analytics?.asset_allocation || {}" :size="180" legend-position="right" />
+                        <DonutChart v-else :data="analytics?.asset_allocation || {}" :size="180"
+                            legend-position="right" />
                     </div>
 
                     <!-- Sector/Category Distribution -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Sector / Category Distribution</h4>
-                        <div v-if="isLoading && !analytics?.category_allocation" class="h-[180px] flex items-center justify-center">
+                        <div v-if="isLoading && !analytics?.category_allocation"
+                            class="h-[180px] flex items-center justify-center">
                             <div class="skeleton-chart-circle pulse"></div>
                         </div>
-                        <DonutChart v-else :data="analytics?.category_allocation || {}" :size="180" legend-position="right" />
+                        <DonutChart v-else :data="analytics?.category_allocation || {}" :size="180"
+                            legend-position="right" />
                     </div>
                 </div>
 
-                <div class="analytics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                <div class="analytics-grid"
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                     <!-- Top Gainers -->
                     <div class="analytics-card performers-card">
                         <h4 class="card-header gainers">🚀 Top Gainers</h4>
@@ -1299,7 +1348,7 @@ function getSparklinePath(points: number[]): string {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Top Losers -->
                     <div class="analytics-card performers-card">
                         <h4 class="card-header losers">📉 Top Losers</h4>
@@ -1328,27 +1377,17 @@ function getSparklinePath(points: number[]): string {
                 <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 2rem; flex-wrap: wrap;">
                     <!-- Category Filter Chips -->
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; flex: 1; min-width: 200px;">
-                        <button 
-                            v-for="filter in searchFilters" 
-                            :key="filter"
-                            class="filter-chip"
-                            :class="{ active: activeFilter === filter }"
-                            @click="activeFilter = filter"
-                        >
+                        <button v-for="filter in searchFilters" :key="filter" class="filter-chip"
+                            :class="{ active: activeFilter === filter }" @click="activeFilter = filter">
                             {{ filter }}
                         </button>
                     </div>
-                    
+
                     <!-- Search Input -->
                     <div class="filter-search-input-wrapper" style="flex: 0 1 300px; min-width: 200px;">
                         <Search :size="16" class="filter-search-icon" />
-                        <input 
-                            v-model="searchQuery" 
-                            @keyup.enter="handleSearch"
-                            placeholder="Search by fund name or AMC..." 
-                            type="text"
-                            class="filter-search-input"
-                        />
+                        <input v-model="searchQuery" @keyup.enter="handleSearch"
+                            placeholder="Search by fund name or AMC..." type="text" class="filter-search-input" />
                     </div>
 
                     <!-- Sort Dropdown -->
@@ -1362,12 +1401,8 @@ function getSparklinePath(points: number[]): string {
                     </div>
 
                     <!-- Search Button -->
-                    <button 
-                        class="filter-search-btn"
-                        @click="handleSearch"
-                        :disabled="isSearching"
-                        style="min-width: 100px;"
-                    >
+                    <button class="filter-search-btn" @click="handleSearch" :disabled="isSearching"
+                        style="min-width: 100px;">
                         <RefreshCw v-if="isSearching" :size="14" class="spin" />
                         <span v-else>Search</span>
                     </button>
@@ -1382,13 +1417,8 @@ function getSparklinePath(points: number[]): string {
                 </div>
 
                 <div v-else-if="searchResults.length > 0" class="search-results-grid-premium">
-                    <div 
-                        v-for="(fund, index) in searchResults" 
-                        :key="fund.schemeCode" 
-                        class="fund-glass-card" 
-                        @click="openBuyModal(fund)"
-                        :style="{ animationDelay: `${index * 50}ms` }"
-                    >
+                    <div v-for="(fund, index) in searchResults" :key="fund.schemeCode" class="fund-glass-card"
+                        @click="openBuyModal(fund)" :style="{ animationDelay: `${index * 50}ms` }">
                         <div class="fund-card-inner">
                             <div class="fund-card-top">
                                 <div class="fund-icon-box" :style="{ background: getRandomColor(fund.schemeName) }">
@@ -1399,7 +1429,7 @@ function getSparklinePath(points: number[]): string {
                                     <span class="direct-badge">Direct • Growth</span>
                                 </div>
                             </div>
-                            
+
                             <div class="fund-card-body">
                                 <h3>{{ fund.schemeName }}</h3>
                             </div>
@@ -1407,14 +1437,15 @@ function getSparklinePath(points: number[]): string {
                             <div class="fund-stats-row mb-4">
                                 <div class="stat-item">
                                     <label>Returns (3Y)</label>
-                                    <span class="text-emerald-600 font-bold">+{{ getMockReturns(fund.schemeCode) }}%</span>
+                                    <span class="text-emerald-600 font-bold">+{{ getMockReturns(fund.schemeCode)
+                                    }}%</span>
                                 </div>
                                 <div class="stat-item">
                                     <label>Rating</label>
                                     <span class="text-amber-500">★★★★☆</span>
                                 </div>
                             </div>
-                            
+
                             <div class="fund-card-footer">
                                 <div class="fund-action-indicator">
                                     <span>Invest Now</span>
@@ -1423,14 +1454,14 @@ function getSparklinePath(points: number[]): string {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Load More Trigger / Sentinel -->
                     <div v-if="hasMoreResults && !isSearching" ref="scrollSentinel" class="load-more-container">
                         <div class="loader-glass-mini" v-if="isLoadingMore">
                             <RefreshCw :size="20" class="spin" />
                             <span>Loading more funds...</span>
                         </div>
-                         <!-- Fallback button if observer fails or purely for manual control if needed (hidden for now essentially) -->
+                        <!-- Fallback button if observer fails or purely for manual control if needed (hidden for now essentially) -->
                         <button v-else @click="loadMoreResults" class="load-more-btn">
                             Load More
                         </button>
@@ -1439,11 +1470,13 @@ function getSparklinePath(points: number[]): string {
                 <div v-else-if="!isSearching && searchQuery" class="empty-state-search">
                     <div class="empty-glass-icon">🔍</div>
                     <h2>No matching funds</h2>
-                    <p>We couldn't find any funds matching "{{ searchQuery }}". Try searching for AMFI codes or part of the scheme name.</p>
+                    <p>We couldn't find any funds matching "{{ searchQuery }}". Try searching for AMFI codes or part of
+                        the scheme
+                        name.</p>
                 </div>
-                
+
                 <div v-else-if="!isSearching && !searchQuery" class="search-discovery-section animate-slide-up">
-                    
+
                     <!-- Market Pulse Hero -->
                     <div class="market-pulse-hero mb-10">
                         <div class="pulse-header">
@@ -1458,15 +1491,11 @@ function getSparklinePath(points: number[]): string {
                                         <div class="index-val">{{ idx.value }}</div>
                                     </div>
                                     <div class="index-sparkline" v-if="idx.sparkline && idx.sparkline.length > 0">
-                                         <svg width="60" height="20" viewBox="0 0 60 20" fill="none">
-                                            <path 
-                                                :d="getSparklinePath(idx.sparkline)" 
-                                                stroke-width="1.5" 
-                                                :stroke="idx.isUp ? '#10b981' : '#f43f5e'"
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                            />
-                                         </svg>
+                                        <svg width="60" height="20" viewBox="0 0 60 20" fill="none">
+                                            <path :d="getSparklinePath(idx.sparkline)" stroke-width="1.5"
+                                                :stroke="idx.isUp ? '#10b981' : '#f43f5e'" stroke-linecap="round"
+                                                stroke-linejoin="round" />
+                                        </svg>
                                     </div>
                                 </div>
                                 <div class="index-change" :class="idx.isUp ? 'text-emerald-400' : 'text-rose-400'">
@@ -1484,12 +1513,8 @@ function getSparklinePath(points: number[]): string {
                     </div>
 
                     <div class="trending-funds-grid-premium">
-                        <div 
-                            v-for="fund in curatedFunds" 
-                            :key="fund.schemeCode"
-                            class="trending-card-premium"
-                            @click="openBuyModal(fund)"
-                        >
+                        <div v-for="fund in curatedFunds" :key="fund.schemeCode" class="trending-card-premium"
+                            @click="openBuyModal(fund)">
                             <div class="trending-card-top">
                                 <div class="trending-icon" :style="{ background: getRandomColor(fund.schemeName) }">
                                     {{ fund.schemeName[0] }}
@@ -1498,9 +1523,9 @@ function getSparklinePath(points: number[]): string {
                                     <span class="trend-badge">Top Rated</span>
                                 </div>
                             </div>
-                            
+
                             <h4>{{ fund.schemeName }}</h4>
-                            
+
                             <div class="trending-metrics">
                                 <div class="metric">
                                     <span class="label">3Y Return</span>
@@ -1513,7 +1538,8 @@ function getSparklinePath(points: number[]): string {
                             </div>
 
                             <button class="trending-action-btn">
-                                Invest Now <Plus :size="14" />
+                                Invest Now
+                                <Plus :size="14" />
                             </button>
                         </div>
                     </div>
@@ -1525,12 +1551,8 @@ function getSparklinePath(points: number[]): string {
                     </div>
 
                     <div class="amc-grid">
-                        <button 
-                            v-for="amc in topAMCs" 
-                            :key="amc.name" 
-                            class="amc-chip"
-                            @click="searchByCategory(amc.query)"
-                        >
+                        <button v-for="amc in topAMCs" :key="amc.name" class="amc-chip"
+                            @click="searchByCategory(amc.query)">
                             {{ amc.name }}
                         </button>
                     </div>
@@ -1550,18 +1572,17 @@ function getSparklinePath(points: number[]): string {
                             <p>Upload your CAS PDF from CAMS or KFintech.</p>
                         </div>
 
-                        <div 
-                            class="upload-zone-premium"
-                            @click="fileInput?.click()"
-                            :class="{ 'has-file': pdfImportFile }"
-                        >
+                        <div class="upload-zone-premium" @click="fileInput?.click()"
+                            :class="{ 'has-file': pdfImportFile }">
                             <input type="file" ref="fileInput" @change="handleFileSelect" accept=".pdf" hidden />
                             <div v-if="pdfImportFile" class="upload-file-info animate-fade">
                                 <div class="file-icon-wrapper">
                                     <FileText :size="32" />
                                     <div class="file-check">✓</div>
                                 </div>
-                                <div class="text-lg font-bold text-gray-900 mt-2 truncate w-full px-4">{{ pdfImportFile.name }}</div>
+                                <div class="text-lg font-bold text-gray-900 mt-2 truncate w-full px-4">{{
+                                    pdfImportFile.name }}
+                                </div>
                             </div>
                             <div v-else class="upload-placeholder">
                                 <div class="upload-icon-circle">
@@ -1575,31 +1596,20 @@ function getSparklinePath(points: number[]): string {
 
                         <div class="mt-6">
                             <label class="field-label">Assign To Member</label>
-                            <CustomSelect 
-                                v-model="pdfImportMemberId as any" 
-                                :options="[
-                                    { label: '👤 Self (Default)', value: null },
-                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
-                                ]"
-                                placeholder="Select attribution member"
-                            />
+                            <CustomSelect v-model="pdfImportMemberId as any" :options="[
+                                { label: '👤 Self (Default)', value: null },
+                                ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
+                            ]" placeholder="Select attribution member" />
                         </div>
 
                         <div class="password-field-group mt-4">
                             <label class="field-label">PDF Password</label>
                             <div class="premium-input-group">
                                 <Lock :size="16" class="input-icon-leading" />
-                                <input 
-                                    :type="showPdfPassword ? 'text' : 'password'" 
-                                    v-model="pdfImportPassword" 
-                                    placeholder="e.g. PAN Number" 
-                                    class="clean-input" 
-                                />
-                                <button 
-                                    type="button"
-                                    class="password-toggle-btn"
-                                    @click="showPdfPassword = !showPdfPassword"
-                                >
+                                <input :type="showPdfPassword ? 'text' : 'password'" v-model="pdfImportPassword"
+                                    placeholder="e.g. PAN Number" class="clean-input" />
+                                <button type="button" class="password-toggle-btn"
+                                    @click="showPdfPassword = !showPdfPassword">
                                     <Eye v-if="!showPdfPassword" :size="18" />
                                     <EyeOff v-else :size="18" />
                                 </button>
@@ -1607,11 +1617,8 @@ function getSparklinePath(points: number[]): string {
                         </div>
 
                         <div class="action-footer mt-auto pt-6">
-                             <button 
-                                class="btn-primary-large w-full" 
-                                @click="handleCasUpload" 
-                                :disabled="!pdfImportFile || isPdfImporting || isEmailImporting"
-                            >
+                            <button class="btn-primary-large w-full" @click="handleCasUpload"
+                                :disabled="!pdfImportFile || isPdfImporting || isEmailImporting">
                                 <RefreshCw v-if="isPdfImporting" :size="18" class="spin mr-2" />
                                 {{ isPdfImporting ? 'Processing...' : 'Unlock & Import' }}
                             </button>
@@ -1620,7 +1627,7 @@ function getSparklinePath(points: number[]): string {
 
                     <!-- EMAIL SYNC CARD -->
                     <div class="glass-import-card">
-                         <div class="mode-header">
+                        <div class="mode-header">
                             <div class="icon-box-premium emerald">
                                 <Mail :size="28" />
                             </div>
@@ -1630,47 +1637,36 @@ function getSparklinePath(points: number[]): string {
 
                         <div class="info-box-premium emerald mb-6">
                             <h4>How it works</h4>
-                            <p>We securely search for recent emails and process the attachments using the password provided below.</p>
+                            <p>We securely search for recent emails and process the attachments using the password
+                                provided below.
+                            </p>
                         </div>
-                        
+
                         <div class="mb-4">
                             <label class="field-label">Scan Inbox Of</label>
-                            <CustomSelect 
-                                v-model="emailImportMemberId as any" 
-                                :options="[
-                                    { label: '👤 Myself (Current User)', value: null },
-                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
-                                ]"
-                                placeholder="Select inbox owner"
-                            />
-                            <p class="text-xs text-slate-500 mt-1">Select whose email inbox to scan for CAS statements</p>
+                            <CustomSelect v-model="emailImportMemberId as any" :options="[
+                                { label: '👤 Myself (Current User)', value: null },
+                                ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
+                            ]" placeholder="Select inbox owner" />
+                            <p class="text-xs text-slate-500 mt-1">Select whose email inbox to scan for CAS statements
+                            </p>
                         </div>
 
                         <div class="mb-4">
                             <label class="field-label">Scan Period</label>
-                            <CustomSelect 
-                                v-model="emailSyncPeriod as any" 
-                                :options="periodOptions"
-                                placeholder="Select scan range"
-                            />
+                            <CustomSelect v-model="emailSyncPeriod as any" :options="periodOptions"
+                                placeholder="Select scan range" />
                             <p class="text-xs text-slate-500 mt-1">Scan emails received since this period</p>
                         </div>
-                        
+
                         <div class="password-field-group mb-6">
                             <label class="field-label">Sync Password</label>
-                             <div class="premium-input-group">
+                            <div class="premium-input-group">
                                 <Lock :size="16" class="input-icon-leading" />
-                                <input 
-                                    :type="showEmailPassword ? 'text' : 'password'" 
-                                    v-model="emailImportPassword" 
-                                    placeholder="Enter PDF password" 
-                                    class="clean-input" 
-                                />
-                                <button 
-                                    type="button"
-                                    class="password-toggle-btn"
-                                    @click="showEmailPassword = !showEmailPassword"
-                                >
+                                <input :type="showEmailPassword ? 'text' : 'password'" v-model="emailImportPassword"
+                                    placeholder="Enter PDF password" class="clean-input" />
+                                <button type="button" class="password-toggle-btn"
+                                    @click="showEmailPassword = !showEmailPassword">
                                     <Eye v-if="!showEmailPassword" :size="18" />
                                     <EyeOff v-else :size="18" />
                                 </button>
@@ -1678,7 +1674,8 @@ function getSparklinePath(points: number[]): string {
                         </div>
 
                         <div class="action-footer mt-auto">
-                            <button class="btn-primary-large emerald-theme w-full" @click="triggerEmailImport" :disabled="isEmailImporting || isPdfImporting">
+                            <button class="btn-primary-large emerald-theme w-full" @click="triggerEmailImport"
+                                :disabled="isEmailImporting || isPdfImporting">
                                 <RefreshCw v-if="isEmailImporting" :size="18" class="spin mr-2" />
                                 <span v-else class="mr-2">📧</span>
                                 {{ isEmailImporting ? 'Scanning...' : 'Scan My Inbox' }}
@@ -1696,10 +1693,10 @@ function getSparklinePath(points: number[]): string {
                     <h2>Record Transaction</h2>
                     <button class="close-btn" @click="showTransactionModal = false">✕</button>
                 </div>
-                
+
                 <div class="p-4 bg-slate-50 border border-slate-100 flex items-center gap-4 rounded-2xl mb-8">
                     <div class="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-sm"
-                         :style="{ background: getRandomColor(selectedFund?.schemeName || selectedFund?.scheme_name) }">
+                        :style="{ background: getRandomColor(selectedFund?.schemeName || selectedFund?.scheme_name) }">
                         {{ (selectedFund?.schemeName || selectedFund?.scheme_name)?.[0] }}
                     </div>
                     <div class="flex-1 min-w-0">
@@ -1730,31 +1727,35 @@ function getSparklinePath(points: number[]): string {
                             </select>
                         </div>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="field-label">Date</label>
                         <input type="date" v-model="transactionForm.date" class="premium-input" />
                     </div>
-                    
+
                     <div class="grid grid-cols-2 gap-5">
                         <div class="form-group">
                             <label class="field-label">Amount (₹)</label>
-                            <input type="number" v-model="transactionForm.amount" class="premium-input" placeholder="0.00" />
+                            <input type="number" v-model="transactionForm.amount" class="premium-input"
+                                placeholder="0.00" />
                         </div>
                         <div class="form-group">
                             <label class="field-label">
                                 NAV
-                                <span v-if="isNavLoading" class="ml-2 inline-flex items-center text-[10px] text-indigo-500 font-bold uppercase tracking-wider">
+                                <span v-if="isNavLoading"
+                                    class="ml-2 inline-flex items-center text-[10px] text-indigo-500 font-bold uppercase tracking-wider">
                                     <RefreshCw :size="10" class="spin mr-1" /> Fetching...
                                 </span>
                             </label>
-                            <input type="number" step="0.0001" v-model="transactionForm.nav" class="premium-input" placeholder="0.0000" />
+                            <input type="number" step="0.0001" v-model="transactionForm.nav" class="premium-input"
+                                placeholder="0.0000" />
                         </div>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="field-label">Units</label>
-                        <input type="number" step="0.001" v-model="transactionForm.units" class="premium-input" placeholder="0.000" />
+                        <input type="number" step="0.001" v-model="transactionForm.units" class="premium-input"
+                            placeholder="0.000" />
                     </div>
                 </div>
 
@@ -1775,12 +1776,13 @@ function getSparklinePath(points: number[]): string {
                     </div>
                     <button class="close-btn" @click="showReviewModal = false">✕</button>
                 </div>
-                
+
                 <div class="review-modal-body">
                     <div class="review-meta-bar">
                         <div class="selection-controls">
                             <button class="btn-ghost-sm" @click="selectAllTransactions">
-                                {{ selectedTransactions.size === mappedTransactions.length ? 'Deselect All' : 'Select All' }}
+                                {{ selectedTransactions.size === mappedTransactions.length ? 'Deselect All'
+                                    : 'Select All' }}
                             </button>
                             <span class="selection-stats">{{ selectedTransactions.size }} selected</span>
                         </div>
@@ -1788,11 +1790,15 @@ function getSparklinePath(points: number[]): string {
                             <label>Attribution:</label>
                             <select v-if="pdfImportFile" v-model="pdfImportMemberId" class="inline-select">
                                 <option :value="null">Self</option>
-                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name }}</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name
+                                }}
+                                </option>
                             </select>
                             <select v-else v-model="emailImportMemberId" class="inline-select">
                                 <option :value="null">Self</option>
-                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name }}</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name
+                                }}
+                                </option>
                             </select>
                         </div>
                     </div>
@@ -1802,7 +1808,9 @@ function getSparklinePath(points: number[]): string {
                             <thead>
                                 <tr>
                                     <th style="width: 40px">
-                                        <input type="checkbox" :checked="selectedTransactions.size === mappedTransactions.length" @change="selectAllTransactions" />
+                                        <input type="checkbox"
+                                            :checked="selectedTransactions.size === mappedTransactions.length"
+                                            @change="selectAllTransactions" />
                                     </th>
                                     <th>Date</th>
                                     <th>Transaction Details</th>
@@ -1811,11 +1819,14 @@ function getSparklinePath(points: number[]): string {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(txn, idx) in mappedTransactions" :key="idx" :class="{ 'is-selected': selectedTransactions.has(idx), 'has-error': !txn.scheme_code }">
+                                <tr v-for="(txn, idx) in mappedTransactions" :key="idx"
+                                    :class="{ 'is-selected': selectedTransactions.has(idx), 'has-error': !txn.scheme_code }">
                                     <td>
-                                        <input type="checkbox" :checked="selectedTransactions.has(idx)" @change="toggleTransactionSelection(idx)" />
+                                        <input type="checkbox" :checked="selectedTransactions.has(idx)"
+                                            :disabled="txn.is_duplicate" @change="toggleTransactionSelection(idx)" />
                                     </td>
-                                    <td class="text-xs text-slate-500 whitespace-nowrap">{{ new Date(txn.date).toLocaleDateString() }}</td>
+                                    <td class="text-xs text-slate-500 whitespace-nowrap">{{ new
+                                        Date(txn.date).toLocaleDateString() }}</td>
                                     <td>
                                         <div class="txn-desc">
                                             <span class="txn-type" :class="txn.type">{{ txn.type }}</span>
@@ -1833,19 +1844,26 @@ function getSparklinePath(points: number[]): string {
                                                 <span class="badge-icon">⚠️</span>
                                                 <span class="badge-text">Already Imported</span>
                                             </div>
-                                            <div class="mapped-fund-name text-xs text-slate-500">{{ txn.mapped_name }}</div>
+                                            <div class="mapped-fund-name text-xs text-slate-500">{{ txn.mapped_name }}
+                                            </div>
                                         </div>
                                         <div v-else-if="txn.scheme_code" class="mapping-success">
                                             <div class="mapped-fund-name">{{ txn.mapped_name }}</div>
                                             <div class="mapped-fund-code">Code: {{ txn.scheme_code }}</div>
                                         </div>
                                         <div v-else class="mapping-error">
-                                            <div class="error-msg text-rose-600 font-bold text-xs">{{ txn.error || 'Could not map to a known scheme' }}</div>
-                                            <div class="error-tip text-[10px] text-slate-400">This transaction will be skipped if not mapped.</div>
+                                            <div class="error-msg text-rose-600 font-bold text-xs">{{ txn.error ||
+                                                'Could not map to a known scheme' }}</div>
+                                            <div class="error-tip text-[10px] text-slate-400">This transaction will be
+                                                skipped
+                                                if not mapped.</div>
                                         </div>
                                     </td>
-                                    <td class="text-right font-bold" :class="txn.type === 'BUY' ? 'text-emerald-600' : 'text-rose-600'">
-                                        {{ txn.type === 'BUY' ? '+' : '-' }}₹{{ txn.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 }) }}
+                                    <td class="text-right font-bold"
+                                        :class="txn.type === 'BUY' ? 'text-emerald-600' : 'text-rose-600'">
+                                        {{ txn.type === 'BUY' ? '+' : '-' }}₹{{ txn.amount.toLocaleString('en-IN', {
+                                            maximumFractionDigits: 2
+                                        }) }}
                                     </td>
                                 </tr>
                             </tbody>
@@ -1857,26 +1875,31 @@ function getSparklinePath(points: number[]): string {
                     <div class="footer-left">
                         <div class="import-summary-stats">
                             <span class="stat-item stat-new">
-                                <span class="stat-value">{{ mappedTransactions.filter(t => t.scheme_code && !t.is_duplicate).length }}</span>
+                                <span class="stat-value">{{mappedTransactions.filter(t => t.scheme_code &&
+                                    !t.is_duplicate).length}}</span>
                                 <span class="stat-label">New</span>
                             </span>
                             <span class="stat-divider">•</span>
                             <span class="stat-item stat-duplicate">
-                                <span class="stat-value">{{ mappedTransactions.filter(t => t.is_duplicate).length }}</span>
+                                <span class="stat-value">{{mappedTransactions.filter(t => t.is_duplicate).length
+                                }}</span>
                                 <span class="stat-label">Duplicate</span>
                             </span>
                             <span class="stat-divider">•</span>
                             <span class="stat-item stat-unmapped">
-                                <span class="stat-value">{{ mappedTransactions.filter(t => !t.scheme_code).length }}</span>
+                                <span class="stat-value">{{mappedTransactions.filter(t => !t.scheme_code).length
+                                }}</span>
                                 <span class="stat-label">Unmapped</span>
                             </span>
                         </div>
                     </div>
                     <div class="footer-actions">
                         <button class="btn btn-text" @click="showReviewModal = false">Cancel</button>
-                        <button class="btn-primary-large" @click="confirmImport" :disabled="isConfirmingImport || selectedTransactions.size === 0">
+                        <button class="btn-primary-large" @click="confirmImport"
+                            :disabled="isConfirmingImport || selectedTransactions.size === 0">
                             <RefreshCw v-if="isConfirmingImport" :size="16" class="spin mr-2" />
-                            Import {{ selectedTransactions.size }} Transaction{{ selectedTransactions.size !== 1 ? 's' : '' }}
+                            Import {{ selectedTransactions.size }} Transaction{{ selectedTransactions.size !== 1 ? 's' :
+                                '' }}
                         </button>
                     </div>
                 </div>
@@ -1890,16 +1913,16 @@ function getSparklinePath(points: number[]): string {
                 <div class="delete-icon-wrapper">
                     <Trash2 :size="28" stroke-width="2" />
                 </div>
-                
+
                 <!-- Content -->
                 <div class="delete-modal-content">
                     <h3 class="delete-modal-title">Remove this holding?</h3>
                     <p class="delete-modal-subtitle">This action cannot be undone</p>
-                    
+
                     <!-- Fund Preview -->
                     <div v-if="holdingToDelete" class="delete-fund-preview">
                         <div class="fund-preview-avatar"
-                             :style="{ background: getRandomColor(holdingToDelete.scheme_name) }">
+                            :style="{ background: getRandomColor(holdingToDelete.scheme_name) }">
                             {{ holdingToDelete.scheme_name[0] }}
                         </div>
                         <div class="fund-preview-details">
@@ -1907,12 +1930,13 @@ function getSparklinePath(points: number[]): string {
                             <div class="fund-preview-meta">
                                 <span>{{ holdingToDelete.folio_number || 'No Folio' }}</span>
                                 <span class="fund-preview-divider">•</span>
-                                <span class="fund-preview-value">{{ formatAmount(holdingToDelete.current_value) }}</span>
+                                <span class="fund-preview-value">{{ formatAmount(holdingToDelete.current_value)
+                                }}</span>
                             </div>
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Action Buttons -->
                 <div class="delete-modal-actions">
                     <button class="delete-btn-cancel" @click="showDeleteConfirm = false">
@@ -2103,9 +2127,29 @@ function getSparklinePath(points: number[]): string {
     z-index: 1;
 }
 
-.blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -150px; right: -100px; }
-.blob-2 { width: 350px; height: 350px; background: #6366f1; bottom: -100px; left: -100px; }
-.blob-3 { width: 250px; height: 250px; background: #1e40af; top: 10%; left: 20%; }
+.blob-1 {
+    width: 400px;
+    height: 400px;
+    background: #3b82f6;
+    top: -150px;
+    right: -100px;
+}
+
+.blob-2 {
+    width: 350px;
+    height: 350px;
+    background: #6366f1;
+    bottom: -100px;
+    left: -100px;
+}
+
+.blob-3 {
+    width: 250px;
+    height: 250px;
+    background: #1e40af;
+    top: 10%;
+    left: 20%;
+}
 
 /* Summary Cards */
 .summary-cards {
@@ -2128,7 +2172,7 @@ function getSparklinePath(points: number[]): string {
 
 .summary-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .card-icon {
@@ -2141,9 +2185,20 @@ function getSparklinePath(points: number[]): string {
     font-size: 1.5rem;
 }
 
-.income .card-icon { background: #ecfdf5; color: #10b981; }
-.invested .card-icon { background: #e0e7ff; color: #4f46e5; }
-.net .card-icon { background: #eff6ff; color: #3b82f6; }
+.income .card-icon {
+    background: #ecfdf5;
+    color: #10b981;
+}
+
+.invested .card-icon {
+    background: #e0e7ff;
+    color: #4f46e5;
+}
+
+.net .card-icon {
+    background: #eff6ff;
+    color: #3b82f6;
+}
 
 .card-content {
     display: flex;
@@ -2413,7 +2468,8 @@ function getSparklinePath(points: number[]): string {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    line-clamp: 2; /* Standard property for compatibility */
+    line-clamp: 2;
+    /* Standard property for compatibility */
 }
 
 .fund-card-footer {
@@ -2465,7 +2521,8 @@ function getSparklinePath(points: number[]): string {
 }
 
 /* Empty States */
-.empty-state-search, .search-onboarding {
+.empty-state-search,
+.search-onboarding {
     text-align: center;
     padding: 6rem 2rem;
     width: 100%;
@@ -2913,8 +2970,15 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes slideUpFade {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .fund-card {
@@ -3058,8 +3122,17 @@ function getSparklinePath(points: number[]): string {
     z-index: 1;
 }
 
-.upload-mesh.mesh-1 { top: -50px; left: -50px; background: #4f46e5; }
-.upload-mesh.mesh-2 { bottom: -50px; right: -50px; background: #10b981; }
+.upload-mesh.mesh-1 {
+    top: -50px;
+    left: -50px;
+    background: #4f46e5;
+}
+
+.upload-mesh.mesh-2 {
+    bottom: -50px;
+    right: -50px;
+    background: #10b981;
+}
 
 .password-field-group {
     text-align: left;
@@ -3142,7 +3215,8 @@ function getSparklinePath(points: number[]): string {
 
 .empty-text {
     font-size: 1.125rem;
-    color: #94a3b8; /* Muted gray */
+    color: #94a3b8;
+    /* Muted gray */
     font-weight: 500;
 }
 
@@ -3424,7 +3498,7 @@ function getSparklinePath(points: number[]): string {
     left: -50%;
     width: 200%;
     height: 200%;
-    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
@@ -3456,9 +3530,17 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
 /* Modal Styles */
 .modal-overlay {
     position: fixed;
@@ -3539,9 +3621,17 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes slideUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
 /* Pagination & Sorting Styles */
 .load-more-container {
     display: flex;
@@ -3564,14 +3654,14 @@ function getSparklinePath(points: number[]): string {
     color: #475569;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .load-more-btn:hover:not(:disabled) {
     border-color: #6366f1;
     color: #6366f1;
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .load-more-btn:disabled {
@@ -3599,7 +3689,7 @@ function getSparklinePath(points: number[]): string {
     outline: none;
     border-radius: 2rem;
     transition: all 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     font-size: 0.8rem;
     font-weight: 600;
     color: #475569;
@@ -3612,7 +3702,7 @@ function getSparklinePath(points: number[]): string {
 .sort-select:hover {
     border-color: #6366f1;
     color: #6366f1;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .sort-select:focus {
@@ -3738,13 +3828,14 @@ function getSparklinePath(points: number[]): string {
     align-items: center;
     gap: 0.75rem;
     padding: 0.75rem 1.5rem;
-    background: white; /* Basic white background since glass is tricky here without bg */
+    background: white;
+    /* Basic white background since glass is tricky here without bg */
     border: 1px solid #e2e8f0;
     border-radius: 2rem;
     font-size: 0.875rem;
     color: #64748b;
     font-weight: 500;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* Premium Trending Funds */
@@ -3788,7 +3879,7 @@ function getSparklinePath(points: number[]): string {
     color: white;
     font-weight: 700;
     font-size: 1rem;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .trend-badge {
@@ -4109,6 +4200,7 @@ function getSparklinePath(points: number[]): string {
         opacity: 0;
         transform: translateY(20px) scale(0.95);
     }
+
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -4143,8 +4235,13 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 /* Analytics Section Styles */
@@ -4389,8 +4486,13 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Review Modal Styles */
@@ -4532,9 +4634,20 @@ function getSparklinePath(points: number[]): string {
     text-transform: uppercase;
 }
 
-.txn-type.BUY { background: #dcfce7; color: #166534; }
-.txn-type.SELL { background: #fee2e2; color: #991b1b; }
-.txn-type.SIP { background: #e0f2fe; color: #075985; }
+.txn-type.BUY {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.txn-type.SELL {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.txn-type.SIP {
+    background: #e0f2fe;
+    color: #075985;
+}
 
 .txn-name {
     font-size: 0.875rem;
@@ -4611,13 +4724,11 @@ function getSparklinePath(points: number[]): string {
     bottom: 0;
     left: 0;
     transform: translateX(-100%);
-    background-image: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0) 0,
-        rgba(255, 255, 255, 0.5) 20%,
-        rgba(255, 255, 255, 0.8) 60%,
-        rgba(255, 255, 255, 0)
-    );
+    background-image: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0,
+            rgba(255, 255, 255, 0.5) 20%,
+            rgba(255, 255, 255, 0.8) 60%,
+            rgba(255, 255, 255, 0));
     animation: shimmer 2s infinite;
 }
 
@@ -4628,9 +4739,12 @@ function getSparklinePath(points: number[]): string {
 }
 
 @keyframes pulse {
-    0%, 100% {
+
+    0%,
+    100% {
         opacity: 1;
     }
+
     50% {
         opacity: .5;
     }

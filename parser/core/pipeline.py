@@ -28,19 +28,48 @@ class IngestionPipeline:
         if isinstance(pt, Transaction):
             return pt
             
-        # If it's a dict (from UniversalParser)
-        if isinstance(pt, dict):
+        # If it's a dict or dict-like (from UniversalParser or legacy CAS logs)
+        if isinstance(pt, dict) or hasattr(pt, 'amount') or hasattr(pt, 'date'):
+            def safe_pt_get(key, default=None):
+                if isinstance(pt, dict):
+                    return pt.get(key, default)
+                return getattr(pt, key, default)
+
+            # Handle CAS/MF specific mappings
+            raw_type = str(safe_pt_get("type", "DEBIT")).upper()
+            txn_type = TransactionType.DEBIT
+            if raw_type in ["CREDIT", "SELL", "REDEMPTION"]:
+                txn_type = TransactionType.CREDIT
+            elif raw_type in ["DEBIT", "BUY", "INVESTMENT"]:
+                txn_type = TransactionType.DEBIT
+
+            # Merchant mapping
+            m_raw = safe_pt_get("description") or safe_pt_get("scheme_name") or "Unknown"
+            m_clean = safe_pt_get("recipient") or safe_pt_get("scheme_name") or m_raw
+
+            # Handle date parsing
+            pt_date = pt.get("date") if isinstance(pt, dict) else getattr(pt, "date", None)
+            if isinstance(pt_date, str):
+                final_date = datetime.fromisoformat(pt_date)
+            else:
+                final_date = pt_date
+
             return Transaction(
-                amount=Decimal(str(pt.get("amount", 0))),
-                type=TransactionType.DEBIT if pt.get("type") == "DEBIT" else TransactionType.CREDIT,
-                date=datetime.fromisoformat(pt["date"]) if isinstance(pt["date"], str) else pt["date"],
-                account=AccountInfo(mask=pt.get("account_mask") or pt.get("external_id")),
-                merchant=MerchantInfo(raw=pt.get("description"), cleaned=pt.get("recipient") or pt.get("description")),
-                description=pt.get("description"),
-                ref_id=pt.get("external_id") or pt.get("ref_id"),
-                balance=Decimal(str(pt["balance"])) if pt.get("balance") else None,
-                category=pt.get("category"),
-                raw_message=pt.get("original_row", {}).get("description", "Imported")
+                amount=Decimal(str(safe_pt_get("amount", 0))),
+                type=txn_type,
+                date=final_date,
+                account=AccountInfo(mask=safe_pt_get("account_mask") or safe_pt_get("folio_number") or safe_pt_get("external_id")),
+                merchant=MerchantInfo(raw=m_raw, cleaned=m_clean),
+                description=safe_pt_get("description") or safe_pt_get("scheme_name"),
+                ref_id=safe_pt_get("external_id") or safe_pt_get("ref_id") or safe_pt_get("folio_number"),
+                balance=Decimal(str(safe_pt_get("balance"))) if safe_pt_get("balance") else None,
+                category=safe_pt_get("category") or ("Mutual Fund" if safe_pt_get("scheme_name") else None),
+                recipient=safe_pt_get("recipient") or safe_pt_get("scheme_name"),
+                raw_message=safe_pt_get("raw_message") or (
+                    getattr(safe_pt_get("original_row"), "description", "Imported") if safe_pt_get("original_row") and not isinstance(safe_pt_get("original_row"), dict) 
+                    else (safe_pt_get("original_row") or {}).get("description", "Imported") if isinstance(safe_pt_get("original_row"), dict) 
+                    else "Imported"
+                )
             )
             
         # If it's a backend ParsedTransaction
@@ -54,6 +83,7 @@ class IngestionPipeline:
             ref_id=pt.ref_id,
             balance=pt.balance,
             category=pt.category,
+            recipient=pt.recipient,
             raw_message=pt.raw_message
         )
 
@@ -143,8 +173,12 @@ class IngestionPipeline:
              
              # Normalize Merchant
              if parsed_txn.merchant:
-                 parsed_txn.merchant.cleaned = MerchantNormalizer.normalize(parsed_txn.merchant.raw)
-                 # Update description if it was raw
+                 # Use the recipient (if extracted) as the seed for normalization/aliasing
+                 # Otherwise fallback to raw description
+                 name_seed = parsed_txn.recipient or parsed_txn.merchant.raw
+                 parsed_txn.merchant.cleaned = MerchantNormalizer.normalize(name_seed)
+                 
+                 # Update description if it was raw/missing
                  if not parsed_txn.description or parsed_txn.description == parsed_txn.merchant.raw:
                      parsed_txn.description = parsed_txn.merchant.cleaned
              
@@ -180,23 +214,50 @@ class IngestionPipeline:
              
              for rs in recent_successes:
                  try:
-                     prev_data = rs.output_payload.get("transaction")
-                     if not prev_data: continue
+                     payload = rs.output_payload or {}
                      
-                     # Comparison criteria
-                     same_amt = Decimal(str(prev_data["amount"])) == parsed_txn.amount
+                     # Extract list of transactions from payload
+                     prev_txns = []
+                     if "results" in payload:
+                         for item in payload["results"]:
+                             if item.get("transaction"):
+                                 prev_txns.append(item["transaction"])
+                     elif "transaction" in payload:
+                         prev_txns.append(payload["transaction"])
                      
-                     # Robust mask check: compare last 4 digits
-                     prev_mask = get_digits(prev_data["account"]["mask"])
-                     curr_mask = get_digits(parsed_txn.account.mask if parsed_txn.account else "")
-                     same_mask = prev_mask == curr_mask if (prev_mask and curr_mask) else False
+                     for prev_data in prev_txns:
+                         # Comparison criteria
+                         same_amt = Decimal(str(prev_data["amount"])) == parsed_txn.amount
+                         
+                         # Check Reference ID if both have it
+                         prev_ref = str(prev_data.get("ref_id") or "").strip().lstrip('0')
+                         curr_ref = str(parsed_txn.ref_id or "").strip().lstrip('0')
+                         same_ref = prev_ref == curr_ref if (prev_ref and curr_ref) else False
+                         
+                         if same_ref: # High confidence match
+                              is_cross_duplicate = True
+                              logs.append(f"Matching Ref ID detected from {rs.id}")
+                              break
+
+                         # Robust mask check: compare last 4 digits
+                         prev_mask = get_digits(prev_data.get("account", {}).get("mask"))
+                         curr_mask = get_digits(parsed_txn.account.mask if parsed_txn.account else "")
+                         same_mask = prev_mask == curr_mask if (prev_mask and curr_mask) else False
+                         
+                         # Fuzzy merchant match
+                         m_prev = (prev_data.get("merchant", {}).get("cleaned") or prev_data.get("description") or "")
+                         m_curr = parsed_txn.merchant.cleaned or parsed_txn.description or ""
+                         same_merchant = fuzz.partial_ratio(m_prev, m_curr) > 90
+                         
+                         # Same Type (Debit vs Credit)
+                         same_type = prev_data.get("type") == parsed_txn.type
+                         
+                         if same_amt and same_mask and same_merchant and same_type:
+                             is_cross_duplicate = True
+                             logs.append(f"Cross-source duplicate detected from {rs.id}")
+                             break
                      
-                     # Fuzzy merchant match for deduplication
-                     same_merchant = fuzz.partial_ratio(prev_data["merchant"]["cleaned"], parsed_txn.merchant.cleaned) > 90
-                     
-                     if same_amt and same_mask and same_merchant:
-                         is_cross_duplicate = True
-                         logs.append(f"Cross-source duplicate detected from {rs.id}")
+                     if is_cross_duplicate:
                          break
                  except: continue
 

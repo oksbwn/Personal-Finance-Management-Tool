@@ -186,8 +186,12 @@ class MutualFundService:
                 if not is_duplicate:
                     txn_date_raw = txn.get('date')
                     if isinstance(txn_date_raw, str):
+                        # Handle ISO format with T
+                        if 'T' in txn_date_raw:
+                             txn_date_raw = txn_date_raw.split('T')[0]
+                        
                         # Parse string date
-                        for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%Y-%m-%d %H:%M:%S"):
                             try:
                                 txn_date_raw = datetime.strptime(txn_date_raw, fmt)
                                 break
@@ -195,21 +199,52 @@ class MutualFundService:
                     
                     if isinstance(txn_date_raw, (datetime, date)):
                         txn_date = txn_date_raw.date() if isinstance(txn_date_raw, datetime) else txn_date_raw
-                        rounded_units = round(float(txn.get('units', 0)), 4)
-                        rounded_amount = round(float(txn.get('amount', 0)), 2)
+                        # Fix: Normalize type and sign for comparison
+                        txn_type = txn.get('type', 'BUY')
+                        if txn_type == "DEBIT": txn_type = "BUY"
+                        elif txn_type == "CREDIT": txn_type = "SELL"
                         
-                        existing = db.query(MutualFundOrder.id).filter(
+                        rounded_units = abs(round(float(txn.get('units', 0)), 4))
+                        rounded_amount = abs(round(float(txn.get('amount', 0)), 2))
+
+                        # Ensure scheme_code is string for DB query
+                        scheme_code_str = str(scheme_code).strip()
+                        
+                        # Candidate search: Fetch ALL orders for this scheme (safer to filter in Python)
+                        # Relax user_id check to include legacy (NULL) records
+                        candidates = db.query(MutualFundOrder).filter(
                             MutualFundOrder.tenant_id == tenant_id,
-                            MutualFundOrder.user_id == user_id,
-                            MutualFundOrder.scheme_code == scheme_code,
-                            func.date(MutualFundOrder.order_date) == txn_date,
-                            MutualFundOrder.type == txn.get('type', 'BUY'),
-                            func.round(MutualFundOrder.units, 4) == rounded_units,
-                            func.round(MutualFundOrder.amount, 2) == rounded_amount
-                        ).first()
+                            (MutualFundOrder.user_id == user_id) | (MutualFundOrder.user_id.is_(None)),
+                            MutualFundOrder.scheme_code == scheme_code_str
+                        ).all()
                         
-                        if existing:
-                            is_duplicate = True
+                        def normalize_type(t_str):
+                            t = str(t_str).upper().strip()
+                            if t in ["BUY", "DEBIT", "PURCHASE", "PURCHASE_SIP", "SWITCH_IN", "SIP", "STP_IN"]: return "BUY"
+                            if t in ["SELL", "CREDIT", "REDEMPTION", "SWITCH_OUT", "STP_OUT"]: return "SELL"
+                            return t
+
+                        # Python-side robust matching
+                        for result in candidates:
+                            # 1. Date Check
+                            db_date = result.order_date.date() if hasattr(result.order_date, 'date') else result.order_date
+                            if db_date != txn_date:
+                                continue
+
+                            # 2. Units/Amount Check (Epsilon)
+                            db_units = abs(float(result.units))
+                            db_amount = abs(float(result.amount))
+                            
+                            if not (abs(db_units - rounded_units) < 0.001 and abs(db_amount - rounded_amount) < 0.01):
+                                continue
+
+                            # 3. Type Check (Robust Normalization)
+                            db_type_norm = normalize_type(result.type)
+                            input_type_norm = normalize_type(txn_type)
+                            
+                            if db_type_norm == input_type_norm:
+                                is_duplicate = True
+                                break
             
             txn['is_duplicate'] = is_duplicate
         
@@ -305,19 +340,22 @@ class MutualFundService:
         from datetime import date
         
         txn_date = data['date'].date() if isinstance(data['date'], datetime) else data['date']
-        rounded_units = round(float(data['units']), 4)
-        rounded_amount = round(float(data['amount']), 2)
+        # Fix: Normalize type and sign logic
+        txn_type = data.get('type', 'BUY')
+        if txn_type == "DEBIT": txn_type = "BUY"
+        elif txn_type == "CREDIT": txn_type = "SELL"
+        
+        rounded_units = abs(round(float(data['units']), 4))
+        rounded_amount = abs(round(float(data['amount']), 2))
         
         existing_order = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.user_id == user_id,
             MutualFundOrder.scheme_code == scheme_code,
-            # Use func.date to ignore time part
             func.date(MutualFundOrder.order_date) == txn_date,
-            MutualFundOrder.type == data.get('type', 'BUY'),
-            # Precision-safe comparison
-            func.round(MutualFundOrder.units, 4) == rounded_units,
-            func.round(MutualFundOrder.amount, 2) == rounded_amount
+            MutualFundOrder.type == txn_type,
+            func.round(func.abs(MutualFundOrder.units), 4) == rounded_units,
+            func.round(func.abs(MutualFundOrder.amount), 2) == rounded_amount
         ).first()
 
         if existing_order:
@@ -328,10 +366,10 @@ class MutualFundService:
             tenant_id=tenant_id,
             user_id=user_id,
             scheme_code=scheme_code,
-            type=data.get('type', 'BUY'),
-            amount=data['amount'],
-            units=data['units'],
-            nav=data['nav'],
+            type=txn_type,
+            amount=abs(float(data['amount'])),
+            units=abs(float(data['units'])),
+            nav=abs(float(data['nav'])),
             order_date=data['date'],
             external_id=external_id,
             folio_number=data.get('folio_number'),
@@ -1148,10 +1186,10 @@ class MutualFundService:
                 # Convert order_date to date if it's datetime
                 order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
                 
-                if order.type == "BUY":
+                if order.type == "BUY" or order.type == "DEBIT":
                     cash_flows.append((order_date, -amount))  # Outflow is negative
                     total_invested += amount
-                else:  # SELL
+                elif order.type == "SELL" or order.type == "CREDIT":
                     cash_flows.append((order_date, amount))  # Inflow is positive
             
             # Add current value as final inflow at today's date
@@ -1275,14 +1313,18 @@ class MutualFundService:
         ).all()
         
         # Convert cached snapshots to dict for easy lookup
-        cache_dict = {
-            snap.snapshot_date.date(): {
+        cache_dict = {}
+        for snap in cached_snapshots:
+            # Self-Healing: Ignore cached entries with 0 value if investment exists (indicates failed NAV fetch previously)
+            if snap.portfolio_value == 0 and snap.invested_value > 0:
+                continue
+                
+            cache_dict[snap.snapshot_date.date()] = {
                 "date": snap.snapshot_date.date().isoformat(),
                 "value": float(snap.portfolio_value),
-                "invested": float(snap.invested_value)
+                "invested": float(snap.invested_value),
+                "benchmark_value": float(getattr(snap, 'benchmark_value', 0.0) or 0.0)
             }
-            for snap in cached_snapshots
-        }
         
         # Convert cached snapshots to dict for easy lookup
         
@@ -1348,11 +1390,11 @@ class MutualFundService:
                     if order_date <= current_date:
                         scheme_code = str(order.scheme_code)
                         
-                        if order.type == "BUY":
+                        if order.type == "BUY" or order.type == "DEBIT":
                             holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) + float(order.units)
                             invested_at_date += float(order.amount)
                             buy_total += float(order.amount)
-                        elif order.type == "SELL":
+                        elif order.type == "SELL" or order.type == "CREDIT":
                             holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) - float(order.units)
                             invested_at_date -= float(order.amount)
                             sell_total += float(order.amount)
@@ -1383,24 +1425,57 @@ class MutualFundService:
                                 nav_fallback += 1
                 
                 
+                # Calculate Benchmark (Nifty 50 Proxy: 120716)
+                benchmark_value = 0.0
+                try:
+                    BENCHMARK_SCHEME = "120716"
+                    if BENCHMARK_SCHEME not in bulk_nav_data:
+                        get_nav_bulk(BENCHMARK_SCHEME)
+                    
+                    bm_nav = find_closest_nav(bulk_nav_data.get(BENCHMARK_SCHEME, {}), current_date)
+                    
+                    shadow_units = 0.0
+                    for order in orders:
+                        o_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                        if o_date <= current_date:
+                            hist_bm_nav = find_closest_nav(bulk_nav_data.get(BENCHMARK_SCHEME, {}), o_date)
+                            if hist_bm_nav > 0:
+                                amt = float(order.amount)
+                                # Approximate amount if 0 using units * nav
+                                if amt <= 0: amt = float(order.units) * float(order.nav)
+                                
+                                if order.type == "BUY" or order.type == "DEBIT":
+                                    shadow_units += (amt / hist_bm_nav)
+                                elif order.type == "SELL" or order.type == "CREDIT":
+                                    shadow_units -= (amt / hist_bm_nav)
+                    
+                    benchmark_value = max(0, shadow_units * bm_nav)
+                except Exception:
+                    benchmark_value = 0.0
+
                 snapshot_data = {
                     "date": current_date.isoformat(),
                     "value": round(portfolio_value, 2),
-                    "invested": round(invested_at_date, 2)
+                    "invested": round(invested_at_date, 2),
+                    "benchmark_value": round(benchmark_value, 2)
                 }
                 timeline.append(snapshot_data)
                 
                 # Save to cache if not today
                 if current_date < end_date:
-                    from datetime import datetime as dt
-                    cache_entry = PortfolioTimelineCache(
-                        tenant_id=tenant_id,
-                        snapshot_date=dt.combine(current_date, dt.min.time()),
-                        portfolio_hash=portfolio_hash,
-                        portfolio_value=round(portfolio_value, 2),
-                        invested_value=round(invested_at_date, 2)
-                    )
-                    db.add(cache_entry)
+                    # Sanity Check: Don't cache if value is 0 but we have investment (means NAV fetch failed)
+                    if portfolio_value == 0 and invested_at_date > 0:
+                        pass
+                    else:
+                        from datetime import datetime as dt
+                        cache_entry = PortfolioTimelineCache(
+                            tenant_id=tenant_id,
+                            snapshot_date=dt.combine(current_date, dt.min.time()),
+                            portfolio_hash=portfolio_hash,
+                            portfolio_value=round(portfolio_value, 2),
+                            invested_value=round(invested_at_date, 2)
+                        )
+                        db.add(cache_entry)
             
             # Move to next snapshot date
             # Move to next date based on granularity
@@ -1458,9 +1533,9 @@ class MutualFundService:
                             if amount <= 0:
                                 amount = float(order.units) * float(order.nav)
                                 
-                            if order.type == "BUY":
+                            if order.type == "BUY" or order.type == "DEBIT":
                                 total_benchmark_units += (amount / o_nav)
-                            elif order.type == "SELL":
+                            elif order.type == "SELL" or order.type == "CREDIT":
                                 # Proportionally sell benchmark units based on value ratio
                                 # We'll just sell the same equivalent cash value for simplicity
                                 total_benchmark_units -= (amount / o_nav)

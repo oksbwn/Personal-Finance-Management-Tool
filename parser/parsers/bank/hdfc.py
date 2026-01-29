@@ -25,6 +25,12 @@ class HdfcSmsParser(BaseSmsParser):
         re.IGNORECASE
     )
 
+    # Example: "Rs.500.00 credited to HDFC Bank A/c XX5244 on 29-01-26 from VPA tiki08676-2@okaxis (UPI 639501711301)"
+    CREDIT_PATTERN = re.compile(
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*credited\s*to\s*HDFC\s*Bank\s*A/c\s*(?:.*?|x*|\*|X*)(\d+)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*from\s*(.*?)(?:\s*\((?:UPI|Ref)[:\.\s]*(\w+)\))?",
+        re.IGNORECASE
+    )
+
     BAL_PATTERN = re.compile(r"(?i)(?:Avbl\s*Bal|Bal|Balance)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
     LIMIT_PATTERN = re.compile(r"(?i)(?:Credit\s*Limit|Limit)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
 
@@ -63,6 +69,16 @@ class HdfcSmsParser(BaseSmsParser):
             date_str = match.group(4)
             ref_id = match.group(5)
             return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, date_hint)
+
+        # 4. Try Credit
+        match = self.CREDIT_PATTERN.search(clean_content)
+        if match:
+            amount = Decimal(match.group(1).replace(",", ""))
+            account_mask = match.group(2)
+            date_str = match.group(3)
+            sender_info = match.group(4).strip()
+            ref_id = match.group(5)
+            return self._create_txn(amount, sender_info, account_mask, date_str, "CREDIT", content, ref_id, date_hint)
 
         return None
 
@@ -121,8 +137,9 @@ class HdfcEmailParser(BaseEmailParser):
     )
 
     # Example: "Rs.40000.00 has been debited from account 5244 to VPA groww.iccl1.brk@validhdfc MUTUAL FUNDS ICCL on 13-01-26. Ref: 116929657356"
+    # Example 2: "Dear Customer, Rs.35.00 has been debited from account 5244 to VPA ... on 28-01-26. Your UPI transaction reference number is 1178..."
     UPI_DEBIT_PATTERN = re.compile(
-        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?[\s:\.-]+([a-zA-Z0-9]+))?",
         re.IGNORECASE
     )
 

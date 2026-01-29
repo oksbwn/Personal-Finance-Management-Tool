@@ -36,6 +36,10 @@ class TransactionMeta(BaseModel):
     confidence: float
     parser_used: str
     source_original: str
+    units: Optional[float] = None
+    nav: Optional[float] = None
+    amfi: Optional[str] = None
+    isin: Optional[str] = None
 
 class ParsedItem(BaseModel):
     status: str # extracted, partial, ignored

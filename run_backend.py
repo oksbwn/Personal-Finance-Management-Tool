@@ -9,12 +9,12 @@ sys.path.append(os.getcwd())
 
 def run_main_app():
     print("Starting Main Backend on port 8000...")
-    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)
 
 def run_parser_service():
     print("Starting Parser Service on port 8001...")
     # Parser needs its own DB path config usually, handled by env vars
-    uvicorn.run("parser.main:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("parser.main:app", host="0.0.0.0", port=8001, reload=True)
 
 if __name__ == "__main__":
     # simple process manager

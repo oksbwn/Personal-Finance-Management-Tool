@@ -28,6 +28,8 @@ mkdir -p $STAGING_DIR
 # We handle exclusions by just copying what we need or removing after
 cp -r backend $STAGING_DIR/
 cp -r frontend $STAGING_DIR/
+cp -r parser $STAGING_DIR/
+cp -r scripts $STAGING_DIR/
 cp Dockerfile $STAGING_DIR/
 cp docker-compose.yml $STAGING_DIR/
 cp entrypoint.sh $STAGING_DIR/

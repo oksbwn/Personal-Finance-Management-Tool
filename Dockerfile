@@ -19,8 +19,10 @@ RUN apt-get update && apt-get install -y nginx && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # 2. Python Dependency Installation
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt ./backend-reqs.txt
+COPY parser/requirements.txt ./parser-reqs.txt
+RUN pip install --no-cache-dir -r backend-reqs.txt && \
+    pip install --no-cache-dir -r parser-reqs.txt
 
 # 3. Static Infrastructure Configs (Change infrequently)
 COPY frontend/nginx.conf /etc/nginx/sites-available/default

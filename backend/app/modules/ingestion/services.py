@@ -90,41 +90,15 @@ class IngestionService:
             final_amount = abs(parsed.amount)
 
         # --- DEDUPLICATION CHECK ---
-        message_hash = None
-        if parsed.raw_message:
-            message_hash = hashlib.md5(parsed.raw_message.encode()).hexdigest()
+        from backend.app.modules.ingestion.deduplicator import TransactionDeduplicator
+        message_hash = TransactionDeduplicator.generate_hash(
+            tenant_id, str(account.id), parsed.date, final_amount, parsed.description, parsed.recipient
+        )
 
-        # 1. Check by Reference ID (if available)
-        if parsed.ref_id:
-            existing_txn = db.query(finance_models.Transaction).filter(
-                finance_models.Transaction.tenant_id == tenant_id,
-                finance_models.Transaction.external_id == parsed.ref_id
-            ).first()
-            if existing_txn:
-                return {"status": "skipped", "reason": f"Deduplicated (already exists in confirmed: {existing_txn.id})", "deduplicated": True}
-                
-            existing_pending = db.query(ingestion_models.PendingTransaction).filter(
-                ingestion_models.PendingTransaction.tenant_id == tenant_id,
-                ingestion_models.PendingTransaction.external_id == parsed.ref_id
-            ).first()
-            if existing_pending:
-                return {"status": "skipped", "reason": f"Deduplicated (already exists in triage: {existing_pending.id})", "deduplicated": True}
+        is_dup, reason, existing_id = TransactionDeduplicator.check_duplicate(db, tenant_id, parsed, str(account.id), final_amount)
         
-        # 2. Check by Content Hash (if ref_id is missing or as secondary check)
-        if message_hash:
-            existing_txn = db.query(finance_models.Transaction).filter(
-                finance_models.Transaction.tenant_id == tenant_id,
-                finance_models.Transaction.content_hash == message_hash
-            ).first()
-            if existing_txn:
-                 return {"status": "skipped", "reason": "Deduplicated by content hash (already in transactions)", "deduplicated": True}
-
-            existing_pending = db.query(ingestion_models.PendingTransaction).filter(
-                ingestion_models.PendingTransaction.tenant_id == tenant_id,
-                ingestion_models.PendingTransaction.content_hash == message_hash
-            ).first()
-            if existing_pending:
-                 return {"status": "skipped", "reason": "Deduplicated by content hash (already in triage)", "deduplicated": True}
+        if is_dup:
+            return {"status": "skipped", "reason": f"Deduplicated: {reason}", "deduplicated": True, "existing_id": existing_id}
 
         # --- IGNORE PATTERN CHECK ---
         check_text = f"{(parsed.recipient or '')} {(parsed.description or '')}".lower()
