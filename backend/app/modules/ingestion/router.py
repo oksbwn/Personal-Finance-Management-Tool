@@ -511,17 +511,23 @@ async def parse_file(
         content = await file.read()
         
         from backend.app.modules.ingestion.parser_service import ExternalParserService
-        response = ExternalParserService.parse_file(content, file.filename, mapping_dict)
+        response = ExternalParserService.parse_file(content, file.filename, mapping_dict, header_row_index=header_row_index)
         
-        if response and response.get("status") == "success":
-            # Transform IngestionResult back to flat list of transactions
-            results = response.get("results", [])
-            flat_txns = []
-            for item in results:
-                txn = item.get("transaction")
-                if txn:
-                    flat_txns.append(txn)
-            return flat_txns
+        if response:
+             if response.get("status") == "success":
+                # Transform IngestionResult back to flat list of transactions
+                results = response.get("results", [])
+                flat_txns = []
+                for item in results:
+                    txn = item.get("transaction")
+                    if txn:
+                        flat_txns.append(txn)
+                return flat_txns
+             else:
+                 # Check for logs
+                 logs = response.get("logs", [])
+                 detail_msg = f"Parsing failed: {logs[0] if logs else 'Unknown error'}"
+                 raise HTTPException(status_code=400, detail=detail_msg)
             
         raise HTTPException(status_code=400, detail=f"Parsing failed: {response.get('logs') if response else 'Unknown error'}")
 

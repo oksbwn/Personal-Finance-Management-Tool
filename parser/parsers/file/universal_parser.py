@@ -218,11 +218,7 @@ class UniversalParser:
                     skipped_rows.append(f"Row {idx+1}: Exception - {str(e)}")
                     continue
             
-            # Log skipped rows for debugging
-            if skipped_rows:
-                pass
-            
-            return parsed_rows
+            return parsed_rows, skipped_rows
 
 
         except Exception as e:

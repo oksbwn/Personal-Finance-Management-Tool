@@ -149,9 +149,6 @@ async function parseFile() {
         parsedTxns.value = res.data
         selectedTxns.value = new Set(parsedTxns.value.map((_, i) => i))
         
-        parsedTxns.value = res.data
-        selectedTxns.value = new Set(parsedTxns.value.map((_, i) => i))
-        
         step.value = 4
     } catch (e: any) {
         notify.error(e.response?.data?.detail || "Failed to parse file")

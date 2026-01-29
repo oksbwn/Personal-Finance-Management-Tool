@@ -62,7 +62,7 @@ class ExternalParserService:
             return False
 
     @staticmethod
-    def parse_file(file_content: bytes, filename: str, mapping: Optional[Dict] = None, password: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def parse_file(file_content: bytes, filename: str, mapping: Optional[Dict] = None, header_row_index: Optional[int] = None, password: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Call the external parser microservice for File ingestion.
         """
@@ -74,6 +74,8 @@ class ExternalParserService:
             if mapping:
                 import json
                 data['mapping_override'] = json.dumps(mapping)
+            if header_row_index is not None:
+                data['header_row_index'] = header_row_index
             if password:
                 data['password'] = password
                 

@@ -69,6 +69,7 @@ async def ingest_file(
     file: UploadFile = File(...),
     account_fingerprint: Optional[str] = Form(None),
     mapping_override: Optional[str] = Form(None), 
+    header_row_index: Optional[int] = Form(None),
     password: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
@@ -78,13 +79,14 @@ async def ingest_file(
     filename = file.filename
     
     mapping = {}
-    header_idx = 0
+    header_idx = header_row_index or 0
     
     if account_fingerprint:
         saved = db.query(FileParsingConfig).filter(FileParsingConfig.fingerprint == account_fingerprint).first()
         if saved:
             mapping = saved.columns_json
-            header_idx = saved.header_row_index
+            if header_row_index is None:
+                header_idx = saved.header_row_index
             
     if mapping_override:
         try:
@@ -99,7 +101,7 @@ async def ingest_file(
             return IngestionResult(status="failed", results=[], logs=[str(e)])
 
     try:
-        raw_txns = UniversalParser.parse(content, filename, mapping, header_idx, password=password)
+        raw_txns, skipped_logs = UniversalParser.parse(content, filename, mapping, header_idx, password=password)
         pipeline = IngestionPipeline(db)
         results = []
         for t_dict in raw_txns:
@@ -109,7 +111,13 @@ async def ingest_file(
                 transaction=t,
                 metadata=TransactionMeta(confidence=1.0, parser_used="UniversalParser", source_original="FILE")
             ))
-        return IngestionResult(status="success", results=results)
+        
+        status = "success" if results else "failed"
+        if not results and skipped_logs:
+             # If no results but we have skipped logs, return them
+             return IngestionResult(status="failed", results=[], logs=skipped_logs)
+             
+        return IngestionResult(status=status, results=results, logs=skipped_logs)
     except Exception as e:
         return IngestionResult(status="failed", results=[], logs=[str(e)])
 
