@@ -21,7 +21,9 @@ import {
     Eye as EyeIconMain,
     ArrowUp,
     ArrowDown,
-    ChevronRight
+    ChevronRight,
+    Unlock,
+    ScanSearch
 } from 'lucide-vue-next'
 import { useCurrency } from '@/composables/useCurrency'
 import { marked } from 'marked'
@@ -1438,7 +1440,7 @@ function getSparklinePath(points: number[]): string {
                                 <div class="stat-item">
                                     <label>Returns (3Y)</label>
                                     <span class="text-emerald-600 font-bold">+{{ getMockReturns(fund.schemeCode)
-                                    }}%</span>
+                                        }}%</span>
                                 </div>
                                 <div class="stat-item">
                                     <label>Rating</label>
@@ -1617,9 +1619,10 @@ function getSparklinePath(points: number[]): string {
                         </div>
 
                         <div class="action-footer mt-auto pt-6">
-                            <button class="btn-primary-large w-full" @click="handleCasUpload"
+                            <button class="btn-primary-large" @click="handleCasUpload"
                                 :disabled="!pdfImportFile || isPdfImporting || isEmailImporting">
                                 <RefreshCw v-if="isPdfImporting" :size="18" class="spin mr-2" />
+                                <Unlock v-else :size="18" class="mr-2" />
                                 {{ isPdfImporting ? 'Processing...' : 'Unlock & Import' }}
                             </button>
                         </div>
@@ -1674,10 +1677,10 @@ function getSparklinePath(points: number[]): string {
                         </div>
 
                         <div class="action-footer mt-auto">
-                            <button class="btn-primary-large emerald-theme w-full" @click="triggerEmailImport"
+                            <button class="btn-primary-large emerald-theme" @click="triggerEmailImport"
                                 :disabled="isEmailImporting || isPdfImporting">
                                 <RefreshCw v-if="isEmailImporting" :size="18" class="spin mr-2" />
-                                <span v-else class="mr-2">📧</span>
+                                <ScanSearch v-else :size="18" class="mr-2" />
                                 {{ isEmailImporting ? 'Scanning...' : 'Scan My Inbox' }}
                             </button>
                         </div>
@@ -1791,13 +1794,13 @@ function getSparklinePath(points: number[]): string {
                             <select v-if="pdfImportFile" v-model="pdfImportMemberId" class="inline-select">
                                 <option :value="null">Self</option>
                                 <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name
-                                }}
+                                    }}
                                 </option>
                             </select>
                             <select v-else v-model="emailImportMemberId" class="inline-select">
                                 <option :value="null">Self</option>
                                 <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name
-                                }}
+                                    }}
                                 </option>
                             </select>
                         </div>
@@ -1882,13 +1885,13 @@ function getSparklinePath(points: number[]): string {
                             <span class="stat-divider">•</span>
                             <span class="stat-item stat-duplicate">
                                 <span class="stat-value">{{mappedTransactions.filter(t => t.is_duplicate).length
-                                }}</span>
+                                    }}</span>
                                 <span class="stat-label">Duplicate</span>
                             </span>
                             <span class="stat-divider">•</span>
                             <span class="stat-item stat-unmapped">
                                 <span class="stat-value">{{mappedTransactions.filter(t => !t.scheme_code).length
-                                }}</span>
+                                    }}</span>
                                 <span class="stat-label">Unmapped</span>
                             </span>
                         </div>
@@ -1931,7 +1934,7 @@ function getSparklinePath(points: number[]): string {
                                 <span>{{ holdingToDelete.folio_number || 'No Folio' }}</span>
                                 <span class="fund-preview-divider">•</span>
                                 <span class="fund-preview-value">{{ formatAmount(holdingToDelete.current_value)
-                                }}</span>
+                                    }}</span>
                             </div>
                         </div>
                     </div>
@@ -3439,6 +3442,8 @@ function getSparklinePath(points: number[]): string {
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
 }
 
 .btn-primary-large:hover:not(:disabled) {
