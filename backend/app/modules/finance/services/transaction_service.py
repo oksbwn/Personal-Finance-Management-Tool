@@ -11,11 +11,13 @@ from backend.app.modules.ingestion import models as ingestion_models
 
 class TransactionService:
     @staticmethod
-    def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str) -> models.Transaction:
+    def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str, exclude_pending_id: Optional[str] = None) -> models.Transaction:
         # 1. Unified Deduplication Check (Ref ID, Hash-Fallback, and Fields)
         from backend.app.modules.ingestion.deduplicator import TransactionDeduplicator
         is_dup, reason, existing_id = TransactionDeduplicator.check_raw_duplicate(
-            db, tenant_id, str(transaction.account_id), transaction.amount, transaction.date, transaction.description, transaction.recipient, transaction.external_id
+            db, tenant_id, str(transaction.account_id), transaction.amount, transaction.date, 
+            transaction.description, transaction.recipient, transaction.external_id,
+            exclude_pending_id=exclude_pending_id
         )
         
         if is_dup:
@@ -397,7 +399,7 @@ class TransactionService:
             pending.exclude_from_reports = final_exclude
             real_txn = TransferService.approve_transfer(db, pending, tenant_id)
         else:
-            real_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
+            real_txn = TransactionService.create_transaction(db, txn_create, tenant_id, exclude_pending_id=pending_id)
         
         if pending.balance is not None or pending.credit_limit is not None:
             account = db.query(models.Account).filter(models.Account.id == pending.account_id).first()

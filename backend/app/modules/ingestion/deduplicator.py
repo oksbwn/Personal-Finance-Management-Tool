@@ -105,7 +105,8 @@ class TransactionDeduplicator:
         date: datetime,
         description: Optional[str] = None,
         recipient: Optional[str] = None,
-        external_id: Optional[str] = None
+        external_id: Optional[str] = None,
+        exclude_pending_id: Optional[str] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Check for duplicates using raw fields (useful for manual entry or generic builders).
@@ -121,10 +122,14 @@ class TransactionDeduplicator:
             ).first()
             if existing: return True, f"Ref ID {ref_id} already confirmed", str(existing.id)
             
-            pending = db.query(ingestion_models.PendingTransaction).filter(
+            query_pending = db.query(ingestion_models.PendingTransaction).filter(
                 ingestion_models.PendingTransaction.tenant_id == tenant_id,
                 or_(ingestion_models.PendingTransaction.external_id == ref_id, ingestion_models.PendingTransaction.external_id == external_id)
-            ).first()
+            )
+            if exclude_pending_id:
+                query_pending = query_pending.filter(ingestion_models.PendingTransaction.id != exclude_pending_id)
+            
+            pending = query_pending.first()
             if pending: return True, f"Ref ID {ref_id} already in triage", str(pending.id)
 
         # 2. Content Hash Check
@@ -138,10 +143,14 @@ class TransactionDeduplicator:
         ).first()
         if existing_hash: return True, "Standardized field-hash match", str(existing_hash.id)
 
-        pending_hash = db.query(ingestion_models.PendingTransaction).filter(
+        query_pending_hash = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id,
             ingestion_models.PendingTransaction.content_hash == content_hash
-        ).first()
+        )
+        if exclude_pending_id:
+            query_pending_hash = query_pending_hash.filter(ingestion_models.PendingTransaction.id != exclude_pending_id)
+            
+        pending_hash = query_pending_hash.first()
         if pending_hash: return True, "Standardized field-hash match in triage", str(pending_hash.id)
 
         # 3. Fields match (Date, Amount, Desc)
@@ -150,7 +159,7 @@ class TransactionDeduplicator:
              return True, f"Identical fields match transaction {confirmed_match.id}", str(confirmed_match.id)
              
         # Check Pending table fields too
-        pending_match = db.query(ingestion_models.PendingTransaction).filter(
+        query_pending_match = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id,
             ingestion_models.PendingTransaction.account_id == account_id,
             ingestion_models.PendingTransaction.amount == amount,
@@ -159,7 +168,11 @@ class TransactionDeduplicator:
                 ingestion_models.PendingTransaction.description == description,
                 ingestion_models.PendingTransaction.recipient == recipient
             ) if recipient else (ingestion_models.PendingTransaction.description == description)
-        ).first()
+        )
+        if exclude_pending_id:
+            query_pending_match = query_pending_match.filter(ingestion_models.PendingTransaction.id != exclude_pending_id)
+            
+        pending_match = query_pending_match.first()
         if pending_match:
              return True, f"Identical fields match triage item {pending_match.id}", str(pending_match.id)
 
