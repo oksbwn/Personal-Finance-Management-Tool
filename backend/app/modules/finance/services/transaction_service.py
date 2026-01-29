@@ -12,35 +12,32 @@ from backend.app.modules.ingestion import models as ingestion_models
 class TransactionService:
     @staticmethod
     def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str) -> models.Transaction:
-        # Deduplication Check: external_id
-        if transaction.external_id:
-            existing = db.query(models.Transaction).filter(
-                models.Transaction.tenant_id == tenant_id,
-                models.Transaction.external_id == transaction.external_id
-            ).first()
+        # 1. Unified Deduplication Check (Ref ID, Hash-Fallback, and Fields)
+        from backend.app.modules.ingestion.deduplicator import TransactionDeduplicator
+        is_dup, reason, existing_id = TransactionDeduplicator.check_raw_duplicate(
+            db, tenant_id, str(transaction.account_id), transaction.amount, transaction.date, transaction.description, transaction.recipient, transaction.external_id
+        )
+        
+        if is_dup:
+            # If it found a match in confirmed transactions, return it
+            # We check the confirmed table specifically here to be sure
+            existing = db.query(models.Transaction).filter(models.Transaction.id == existing_id).first()
+            if existing: return existing
             
-            if existing:
-                return existing
-
-        # If no external_id, check for content hash duplicate
-        # Generate hash if not present
-        import hashlib
+            # If it was in pending/triage, the deduplicator returns it, but create_transaction 
+            # should probably still proceed or throw if it's strictly enforced.
+            # In our system, manual creation/import should skip if already in triage too.
+            # For now, let's treat it as a skip (return None or raise?) 
+            # But the service signature returns models.Transaction.
+            # Easiest: return None or raise. Usually create_transaction should be idempotent.
+            raise ValueError(f"Duplicate transaction: {reason}")
+            
+        # 2. Content Hash Generation (for storage)
         txn_hash = getattr(transaction, 'content_hash', None)
         if not txn_hash:
-            # Hash: tenant_id + account_id + date + amount + description (or recipient)
-            # Use strict canonical format
-            hash_payload = f"{tenant_id}:{transaction.account_id}:{transaction.date.isoformat()}:{transaction.amount}:{transaction.description or ''}"
-            txn_hash = hashlib.md5(hash_payload.encode()).hexdigest()
-
-        # Check existing by hash
-        existing_hash = db.query(models.Transaction).filter(
-            models.Transaction.tenant_id == tenant_id,
-            models.Transaction.account_id == str(transaction.account_id),
-            models.Transaction.content_hash == txn_hash
-        ).first()
-
-        if existing_hash:
-             return existing_hash
+            txn_hash = TransactionDeduplicator.generate_hash(
+                tenant_id, str(transaction.account_id), transaction.date, transaction.amount, transaction.description, transaction.recipient
+            )
 
         # Serialize tags if present
         tags_str = json.dumps(transaction.tags) if transaction.tags else None
