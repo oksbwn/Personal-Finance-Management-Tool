@@ -65,7 +65,11 @@ class IngestionPipeline:
                 balance=Decimal(str(safe_pt_get("balance"))) if safe_pt_get("balance") else None,
                 category=safe_pt_get("category") or ("Mutual Fund" if safe_pt_get("scheme_name") else None),
                 recipient=safe_pt_get("recipient") or safe_pt_get("scheme_name"),
-                raw_message=getattr(safe_pt_get("original_row"), "description", "Imported") if safe_pt_get("original_row") and not isinstance(safe_pt_get("original_row"), dict) else (safe_pt_get("original_row") or {}).get("description", "Imported") if isinstance(safe_pt_get("original_row"), dict) else "Imported"
+                raw_message=safe_pt_get("raw_message") or (
+                    getattr(safe_pt_get("original_row"), "description", "Imported") if safe_pt_get("original_row") and not isinstance(safe_pt_get("original_row"), dict) 
+                    else (safe_pt_get("original_row") or {}).get("description", "Imported") if isinstance(safe_pt_get("original_row"), dict) 
+                    else "Imported"
+                )
             )
             
         # If it's a backend ParsedTransaction

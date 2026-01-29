@@ -67,7 +67,9 @@ class PatternParser:
                     date=txn_date,
                     account=AccountInfo(mask=account_str, provider="Pattern Match"),
                     merchant=MerchantInfo(raw=merchant_str, cleaned=merchant_str),
-                    description=merchant_str
+                    description=merchant_str,
+                    recipient=merchant_str,
+                    raw_message=content
                 )
 
             except Exception as e:

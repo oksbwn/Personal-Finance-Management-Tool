@@ -90,7 +90,8 @@ class GeminiParser:
                     cleaned=data.get("merchant")
                 ),
                 description=data.get("description"),
-                ref_id=None # AI usually creates hallucinations for ref_ids unless explicit
+                recipient=data.get("merchant"),
+                raw_message=content
             )
 
         except Exception as e:

@@ -214,6 +214,7 @@ class UniversalParser:
                         "ref_id": external_id, # Return as ref_id to match Parser contract
                         "balance": balance_val,
                         "credit_limit": limit_val,
+                        "raw_message": " | ".join([f"{k}: {v}" for k, v in row.to_dict().items() if pd.notna(v)]),
                         "original_row": {str(k): str(v) for k, v in row.to_dict().items()} # Serialize
                     })
 

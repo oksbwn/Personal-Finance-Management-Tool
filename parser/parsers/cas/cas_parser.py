@@ -116,6 +116,7 @@ class CasParser:
                             "amfi": safe_get(scheme, "amfi"),
                             "isin": safe_get(scheme, "isin"),
                             "description": desc,
+                            "raw_message": f"{s_name} | {desc}",
                             "external_id": str(safe_get(txn, "external_id") or safe_get(txn, "ref_id") or "")
                         })
         finally:
