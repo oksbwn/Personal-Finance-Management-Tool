@@ -73,13 +73,13 @@ class CasParser:
                         # but include extra meta.
                         
                         flattened_transactions.append({
-                            "date": txn_date,
+                            "date": txn_date.strftime("%Y-%m-%d"),
                             "type": txn_type,
                             "amount": amount,
                             "units": units,
                             "nav": nav,
-                            "scheme": scheme_name,
-                            "folio": folio_number,
+                            "scheme_name": scheme_name,
+                            "folio_number": folio_number,
                             "amfi": amfi,
                             "description": desc
                         })
