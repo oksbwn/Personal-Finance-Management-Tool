@@ -9,10 +9,12 @@ class FinancialClassifier:
         r"withdraw", r"purchase", r"bill", r"payment"
     ]
 
-    # Keywords that suggest noise (OTP, Promos)
+    # Keywords that suggest noise (OTP, Promos, Notifications)
     NEGATIVE_KEYWORDS = [
         r"otp", r"login", r"password", r"verification code", 
-        r"lucky winner", r"loan offer", r"apply now", r"your statement is ready"
+        r"lucky winner", r"loan offer", r"apply now", r"your statement is ready",
+        r"pre-approved", r"congratulations", r"cashback points", r"exclusive offer",
+        r"click here", r"know more", r"vouchers", r"reward points", r"kyc update"
     ]
 
     @staticmethod

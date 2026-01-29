@@ -131,6 +131,9 @@ def ingest_sms(
     # Accept "processed", "success", and "duplicate_submission"
     status = parser_response.get("status") if parser_response else "offline"
     
+    if status == "ignored":
+        return {"status": "skipped", "message": "Ignored by parser (Non-financial)"}
+
     if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
         # Capture as unparsed for training
         IngestionService.capture_unparsed(db, str(current_user.tenant_id), "SMS", payload.message, sender=payload.sender)
@@ -226,6 +229,9 @@ def ingest_email(
     
     status = parser_response.get("status") if parser_response else "offline"
     
+    if status == "ignored":
+        return {"status": "skipped", "message": "Ignored by parser (Non-financial)"}
+
     if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
         IngestionService.log_event(
             db, str(current_user.tenant_id), "email_ingestion", "error",
