@@ -1,7 +1,13 @@
 import re
 import json
+from datetime import datetime
 
 class PatternGenerator:
+    """
+    Generates regex patterns from labeled training data.
+    These patterns are then pushed to the External Parser Service configuration.
+    This logic remains local to support the interactive training feedback loop.
+    """
     @staticmethod
     def generate_regex_and_config(raw_content: str, labels: dict, txn_type: str = "DEBIT"):
         """
