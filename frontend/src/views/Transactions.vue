@@ -10,6 +10,8 @@ import { useCurrency } from '@/composables/useCurrency'
 
 // ... existing code ...
 
+import SpendingHeatmap from '@/components/SpendingHeatmap.vue'
+
 const showImportModal = ref(false)
 const { formatAmount } = useCurrency()
 
@@ -19,13 +21,34 @@ const notify = useNotificationStore()
 const transactions = ref<any[]>([])
 const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
+const expenseGroups = ref<any[]>([])
 const triageTransactions = ref<any[]>([])
 const budgets = ref<any[]>([])
 const loans = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
-const activeTab = ref<'list' | 'analytics' | 'triage'>('list')
+const activeTab = ref<'list' | 'analytics' | 'triage' | 'heatmap'>('list')
 const activeTriageSubTab = ref<'pending' | 'training'>('pending')
+
+const heatmapData = ref<any[]>([])
+const loadingHeatmap = ref(false)
+
+async function fetchHeatmapData() {
+    loadingHeatmap.value = true
+    try {
+        const res = await financeApi.getHeatmapData(
+            startDate.value || undefined,
+            endDate.value || undefined,
+            undefined // user_id
+        )
+        heatmapData.value = res.data
+    } catch (e) {
+        console.error("Failed to fetch heatmap data", e)
+        notify.error("Failed to load heatmap")
+    } finally {
+        loadingHeatmap.value = false
+    }
+}
 
 // Training State
 const unparsedMessages = ref<any[]>([])
@@ -136,7 +159,8 @@ const defaultForm = {
     linked_transaction_id: '',
     exclude_from_reports: false,
     is_emi: false,
-    loan_id: ''
+    loan_id: '',
+    expense_group_id: ''
 }
 const form = ref({ ...defaultForm })
 
@@ -149,29 +173,35 @@ const loanOptions = computed(() => {
     return loans.value.map(l => ({ label: l.name, value: l.id }))
 })
 
+const expenseGroupOptions = computed(() => {
+    return expenseGroups.value.map(g => ({ label: g.name, value: g.id }))
+})
+
 const categoryOptions = computed(() => {
-    // Collect all unique category names from various sources
-    const categoryNames = new Set(categories.value.map(c => c.name))
+    const list: any[] = []
 
-    // Add current form category if exists (for edit modal)
-    if (form.value.category) categoryNames.add(form.value.category)
+    // Helper to flatten recursive categories
+    const flatten = (cats: any[], depth = 0) => {
+        cats.forEach(c => {
+            const prefix = depth > 0 ? '　'.repeat(depth) + '└ ' : ''
+            list.push({
+                label: `${prefix}${c.icon || '🏷️'} ${c.name}`,
+                value: c.name
+            })
+            if (c.subcategories && c.subcategories.length > 0) {
+                flatten(c.subcategories, depth + 1)
+            }
+        })
+    }
 
-    // Add all categories appearing in triage transactions (AI suggestions, etc.)
-    triageTransactions.value.forEach(t => {
-        if (t.category) categoryNames.add(t.category)
-    })
+    flatten(categories.value)
 
-    // Ensure Uncategorized is always an option
-    categoryNames.add('Uncategorized')
+    // Ensure Uncategorized is an option if not present
+    if (!list.find(o => o.value === 'Uncategorized')) {
+        list.push({ label: '🏷️ Uncategorized', value: 'Uncategorized' })
+    }
 
-    // Transform to select options with icons where possible
-    return Array.from(categoryNames).sort().map(name => {
-        const cat = categories.value.find(c => c.name === name)
-        return {
-            label: `${cat?.icon || '🏷️'} ${name}`,
-            value: name
-        }
-    })
+    return list
 })
 
 const currentCategoryBudget = computed(() => {
@@ -184,16 +214,18 @@ async function fetchData() {
     loading.value = true
     try {
         if (accounts.value.length === 0) {
-            const [accRes, catRes, budgetRes, loanRes] = await Promise.all([
+            const [accRes, catRes, budgetRes, loanRes, groupRes] = await Promise.all([
                 financeApi.getAccounts(),
-                financeApi.getCategories(),
+                financeApi.getCategories(true),
                 financeApi.getBudgets(),
-                financeApi.getLoans()
+                financeApi.getLoans(),
+                financeApi.getExpenseGroups()
             ])
             accounts.value = accRes.data
             categories.value = catRes.data
             budgets.value = budgetRes.data
             loans.value = loanRes.data
+            expenseGroups.value = groupRes.data
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
@@ -251,7 +283,7 @@ async function fetchTriage(resetSkip = false) {
         if (accounts.value.length === 0 || categories.value.length === 0) {
             const [accRes, catRes] = await Promise.all([
                 financeApi.getAccounts(),
-                financeApi.getCategories()
+                financeApi.getCategories(true)
             ])
             accounts.value = accRes.data
             categories.value = catRes.data
@@ -631,12 +663,26 @@ function getAccountName(id: string) {
 
 function getCategoryDisplay(name: string) {
     if (!name || name === 'Uncategorized') return { icon: '🏷️', text: 'Uncategorized', color: '#9ca3af' }
+
+    // Find category in the flat list
     const cat = categories.value.find(c => c.name === name)
-    if (cat && cat.icon) {
-        return { icon: cat.icon, text: cat.name, color: cat.color || '#3B82F6' }
+    if (cat) {
+        let text = cat.name
+        // If it has a parent, show a bit of hierarchy in the list
+        if (cat.parent_name) {
+            text = `${cat.parent_name} › ${cat.name}`
+        }
+        return { icon: cat.icon || '🏷️', text: text, color: cat.color || '#3B82F6' }
     }
-    // Fallback for categories without icon
+
+    // Fallback for categories without matched object
     return { icon: '🏷️', text: name, color: '#9ca3af' }
+}
+
+function getExpenseGroupName(id: string) {
+    if (!id) return null
+    const group = expenseGroups.value.find(g => g.id === id)
+    return group ? group.name : null
 }
 
 
@@ -652,6 +698,7 @@ function openAddModal() {
         linked_transaction_id: '',
         is_emi: false,
         loan_id: '',
+        expense_group_id: ''
     }
     potentialMatches.value = []
     matchesSearched.value = false
@@ -685,7 +732,8 @@ function openEditModal(txn: any) {
         linked_transaction_id: txn.linked_transaction_id || '',
         exclude_from_reports: txn.exclude_from_reports || false,
         is_emi: txn.is_emi || false,
-        loan_id: txn.loan_id || ''
+        loan_id: txn.loan_id || '',
+        expense_group_id: txn.expense_group_id || ''
     }
     potentialMatches.value = []
     matchesSearched.value = false
@@ -705,7 +753,8 @@ async function handleSubmit() {
             linked_transaction_id: form.value.linked_transaction_id,
             exclude_from_reports: form.value.exclude_from_reports,
             is_emi: form.value.is_emi,
-            loan_id: form.value.loan_id
+            loan_id: form.value.loan_id,
+            expense_group_id: form.value.expense_group_id
         }
 
         if (isEditing.value && editingTxnId.value) {
@@ -794,10 +843,12 @@ async function handleSmartCategorize() {
 }
 
 
-function switchTab(tab: 'list' | 'analytics' | 'triage') {
+function switchTab(tab: 'list' | 'analytics' | 'triage' | 'heatmap') {
     activeTab.value = tab
     if (tab === 'triage') {
         fetchTriage()
+    } else if (tab === 'heatmap') {
+        fetchHeatmapData()
     } else {
         fetchData()
     }
@@ -883,6 +934,9 @@ onMounted(() => {
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
                             }}</span>
+                    </button>
+                    <button class="tab-btn" :class="{ active: activeTab === 'heatmap' }" @click="switchTab('heatmap')">
+                        Heatmap 🗺️
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -1033,6 +1087,10 @@ onMounted(() => {
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
                                             <span class="ref-icon">🔄</span> Transfer
+                                        </span>
+                                        <span class="ref-id-pill" v-if="txn.expense_group_id">
+                                            <span class="ref-icon">📁</span> {{
+                                                getExpenseGroupName(txn.expense_group_id) }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.external_id">
                                             <span class="ref-icon">🆔</span> {{ txn.external_id }}
@@ -1401,6 +1459,19 @@ onMounted(() => {
                 </div>
             </div>
 
+            <!-- Heatmap View -->
+            <div v-if="activeTab === 'heatmap'" class="heatmap-view animate-in">
+                <div v-if="loadingHeatmap" class="loading-overlay">
+                    <div class="spinner"></div>
+                    Loading Map Data...
+                </div>
+                <SpendingHeatmap :data="heatmapData" />
+                <div class="heatmap-footer mt-4">
+                    <p class="text-xs text-muted">Showing spending density based on transaction geolocation. Only
+                        transactions with coordinates are displayed.</p>
+                </div>
+            </div>
+
             <!-- Global Styled Modal -->
             <div v-if="showModal" class="modal-overlay-global">
                 <div class="modal-global">
@@ -1535,9 +1606,19 @@ onMounted(() => {
                                 </div>
                             </div>
                             <div v-else>
+                                <label class="form-label">Category</label>
                                 <CustomSelect v-model="form.category" :options="categoryOptions"
                                     placeholder="Select Category" allow-new />
                             </div>
+                        </div>
+
+                        <div class="form-group" style="border-top: 1px solid #efefef; padding-top: 1rem;">
+                            <label class="form-label">Expense Group (Event/Project)</label>
+                            <CustomSelect v-model="form.expense_group_id"
+                                :options="[{ label: 'None', value: '' }, ...expenseGroupOptions]"
+                                placeholder="Link to Expense Group" />
+                            <p class="text-[10px] text-muted mt-1 italic">Groups help track spending for specific events
+                                like vacations or projects.</p>
                         </div>
 
                         <div class="modal-footer">

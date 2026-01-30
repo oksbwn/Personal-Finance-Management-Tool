@@ -62,6 +62,7 @@ class PendingTransaction(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
+    expense_group_id = Column(String, nullable=True) # No FK to keep ingestion decoupled
     exclude_from_reports = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 

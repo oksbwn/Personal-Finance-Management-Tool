@@ -687,7 +687,8 @@ class MutualFundService:
                 "profit_loss": pl,
                 "last_updated": last_updated_str,
                 "sparkline": sparkline,
-                "user_id": h.user_id
+                "user_id": h.user_id,
+                "goal_id": h.goal_id
             })
             
         return results

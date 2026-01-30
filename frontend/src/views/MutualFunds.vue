@@ -23,7 +23,9 @@ import {
     ArrowDown,
     ChevronRight,
     Unlock,
-    ScanSearch
+    ScanSearch,
+    Sparkles,
+    Target
 } from 'lucide-vue-next'
 import { useCurrency } from '@/composables/useCurrency'
 import { marked } from 'marked'
@@ -32,6 +34,10 @@ const notify = useNotificationStore()
 const { formatAmount } = useCurrency()
 
 const activeTab = ref('portfolio') // portfolio, search, import
+const investmentGoals = ref<any[]>([])
+const showLinkGoalModal = ref(false)
+const holdingToLink = ref<any>(null)
+const selectedGoalId = ref('')
 const isLoading = ref(false)
 const portfolio = ref<any[]>([])
 const searchResults = ref<any[]>([])
@@ -186,6 +192,16 @@ const portfolioStats = computed(() => {
     }
 })
 
+const goalOptions = computed(() => {
+    return [
+        { label: 'No Goal (Unlink)', value: '' },
+        ...investmentGoals.value.map(g => ({
+            label: `${g.icon} ${g.name} (Target: ${formatAmount(g.target_amount)})`,
+            value: g.id
+        }))
+    ]
+})
+
 function generateSparklinePoints(data: number[], width: number, height: number): string {
     if (!data || data.length < 2) return ''
 
@@ -210,6 +226,41 @@ async function fetchPortfolio() {
         notify.error("Failed to load portfolio")
     } finally {
         isLoading.value = false
+    }
+}
+
+async function fetchInvestmentGoals() {
+    try {
+        const res = await financeApi.getInvestmentGoals()
+        investmentGoals.value = res.data
+    } catch (e) {
+        console.error("Failed to fetch goals", e)
+    }
+}
+
+function openLinkGoalModal(holding: any) {
+    holdingToLink.value = holding
+    selectedGoalId.value = holding.goal_id || ''
+    showLinkGoalModal.value = true
+}
+
+async function linkHoldingToGoal() {
+    if (!holdingToLink.value) return
+    try {
+        if (!selectedGoalId.value) {
+            if (holdingToLink.value.goal_id) {
+                await financeApi.unlinkHoldingFromGoal(holdingToLink.value.goal_id, holdingToLink.value.id)
+                notify.success("Goal unlinked")
+            }
+        } else {
+            await financeApi.linkHoldingToGoal(selectedGoalId.value, holdingToLink.value.id)
+            notify.success("Goal linked")
+        }
+        showLinkGoalModal.value = false
+        fetchPortfolio()
+        fetchInvestmentGoals()
+    } catch (e) {
+        notify.error("Action failed")
     }
 }
 
@@ -656,6 +707,7 @@ function handleFileSelect(event: any) {
 
 onMounted(async () => {
     fetchPortfolio()
+    fetchInvestmentGoals()
     try {
         const res = await financeApi.getMe()
         currentUser.value = res.data
@@ -679,6 +731,7 @@ watch(activeTab, async (newTab) => {
         // Load Portfolio secondaries if not present
         if (!analytics.value) fetchAnalytics()
         if (!performanceData.value) fetchPerformanceTimeline()
+        if (investmentGoals.value.length === 0) fetchInvestmentGoals()
     }
     else if (newTab === 'search') {
         // Load Search data only when tab is active
@@ -1086,7 +1139,8 @@ function getSparklinePath(points: number[]): string {
                                         <td style="position: relative;">
                                             <!-- Color Accent Bar -->
                                             <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;"
-                                                :style="{ background: getRandomColor(item.scheme_name) }"></div>
+                                                :style="{ background: item.goal_id ? '#10b981' : getRandomColor(item.scheme_name) }">
+                                            </div>
 
                                             <div class="flex items-start">
                                                 <!-- Expand Toggle for Groups -->
@@ -1105,6 +1159,13 @@ function getSparklinePath(points: number[]): string {
                                                         <span v-if="item.has_multiple"
                                                             class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
                                                             GROUP
+                                                        </span>
+                                                        <span
+                                                            v-if="item.goal_id && investmentGoals.find(g => g.id === item.goal_id)"
+                                                            class="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                                                            style="background-color: #ecfdf5; color: #059669; border: 1px solid #d1fae5;">
+                                                            <Target :size="10" /> {{investmentGoals.find(g => g.id ===
+                                                            item.goal_id)?.name }}
                                                         </span>
                                                     </div>
                                                     <div
@@ -1178,6 +1239,15 @@ function getSparklinePath(points: number[]): string {
                                                     @click="confirmDelete(item)" title="Remove Holding">
                                                     <Trash2 :size="14" />
                                                 </button>
+                                                <button v-if="!item.has_multiple"
+                                                    class="icon-btn shadow-sm transition-all duration-200"
+                                                    :style="item.goal_id ? { color: '#059669', backgroundColor: '#ecfdf5', borderColor: '#d1fae5' } : {}"
+                                                    :class="!item.goal_id ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50 border-amber-100' : 'hover:bg-emerald-100 hover:border-emerald-300'"
+                                                    @click="openLinkGoalModal(item)"
+                                                    :title="item.goal_id ? `Linked to: ${investmentGoals.find(g => g.id === item.goal_id)?.name || 'Goal'}` : 'Link to Goal'">
+                                                    <Target v-if="item.goal_id" :size="14" />
+                                                    <Sparkles v-else :size="14" />
+                                                </button>
                                                 <button
                                                     class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100"
                                                     @click="item.has_multiple ? $router.push(`/mutual-funds/${item.scheme_code}?type=aggregate`) : $router.push(`/mutual-funds/${item.id}`)"
@@ -1232,11 +1302,31 @@ function getSparklinePath(points: number[]): string {
                                                         formatAmount(child.profit_loss) }}
                                                 </span>
                                             </td>
-                                            <td class="px-2 py-2 text-right">
-                                                <button class="text-xs text-indigo-500 hover:underline"
-                                                    @click="$router.push(`/mutual-funds/${child.id}`)">
-                                                    Details
-                                                </button>
+                                            <td class="px-2 py-2 text-right" style="white-space: nowrap;">
+                                                <div class="flex items-center justify-end gap-2 flex-nowrap">
+                                                    <button
+                                                        class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100"
+                                                        style="width: 28px; height: 28px; padding: 5px;"
+                                                        @click="confirmDelete(child)" title="Remove Holding">
+                                                        <Trash2 :size="12" />
+                                                    </button>
+                                                    <button class="icon-btn shadow-sm transition-all duration-200"
+                                                        style="width: 28px; height: 28px; padding: 5px;"
+                                                        :style="child.goal_id ? { color: '#059669', backgroundColor: '#ecfdf5', borderColor: '#d1fae5' } : {}"
+                                                        :class="!child.goal_id ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50 border-amber-100' : 'hover:bg-emerald-100 hover:border-emerald-300'"
+                                                        @click="openLinkGoalModal(child)"
+                                                        :title="child.goal_id ? `Linked to: ${investmentGoals.find(g => g.id === child.goal_id)?.name || 'Goal'}` : 'Link to Goal'">
+                                                        <Target v-if="child.goal_id" :size="12" />
+                                                        <Sparkles v-else :size="12" />
+                                                    </button>
+                                                    <button
+                                                        class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100"
+                                                        style="width: 28px; height: 28px; padding: 5px;"
+                                                        @click="$router.push(`/mutual-funds/${child.id}`)"
+                                                        title="View Details">
+                                                        <EyeIconMain :size="12" />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     </template>
@@ -1949,6 +2039,39 @@ function getSparklinePath(points: number[]): string {
                         <Trash2 :size="16" />
                         <span>Delete Permanently</span>
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- LINK HOLDING TO GOAL MODAL -->
+        <div v-if="showLinkGoalModal" class="modal-overlay" @click.self="showLinkGoalModal = false">
+            <div class="modal-content max-w-md">
+                <div class="modal-header">
+                    <h2>Link to Financial Goal</h2>
+                    <button class="close-btn" @click="showLinkGoalModal = false">✕</button>
+                </div>
+
+                <div v-if="holdingToLink"
+                    class="p-4 bg-slate-50 border border-slate-100 flex items-center gap-4 rounded-2xl mb-8">
+                    <div class="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg"
+                        :style="{ background: getRandomColor(holdingToLink.scheme_name) }">
+                        {{ holdingToLink.scheme_name[0] }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-bold text-slate-900 truncate">{{ holdingToLink.scheme_name }}</div>
+                        <div class="text-xs text-slate-500">{{ holdingToLink.folio_number || 'No Folio' }}</div>
+                    </div>
+                </div>
+
+                <div class="form-group mb-8">
+                    <label class="field-label">Select Goal</label>
+                    <CustomSelect v-model="selectedGoalId" :options="goalOptions"
+                        placeholder="Choose a goal or unlink..." />
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-text" @click="showLinkGoalModal = false">Cancel</button>
+                    <button class="btn-primary-large" @click="linkHoldingToGoal">Save Mapping</button>
                 </div>
             </div>
         </div>

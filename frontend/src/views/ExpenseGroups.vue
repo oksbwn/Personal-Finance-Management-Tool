@@ -61,10 +61,10 @@
                             </div>
                             <div class="card-actions-float">
                                 <button class="action-btn-mini" @click.stop="openEditModal(group)">
-                                    <Pencil size="14" />
+                                    <Pencil :size="14" />
                                 </button>
                                 <button class="action-btn-mini danger" @click.stop="confirmDelete(group)">
-                                    <Trash2 size="14" />
+                                    <Trash2 :size="14" />
                                 </button>
                             </div>
                         </div>
@@ -106,7 +106,7 @@
 
                         <div class="card-footer-modern">
                             <div class="footer-item">
-                                <Calendar size="14" class="text-icon" />
+                                <Calendar :size="14" class="text-icon" />
                                 <span>
                                     {{ group.start_date ? formatDate(group.start_date) : 'Starts -' }}
                                     {{ group.end_date ? ' - ' + formatDate(group.end_date) : '' }}
@@ -131,7 +131,7 @@
                                 <p class="modal-subtitle">Organize your expenses into logical buckets.</p>
                             </div>
                             <button class="btn-icon-circle-subtle" @click="showModal = false">
-                                <X size="20" />
+                                <X :size="20" />
                             </button>
                         </div>
 
@@ -159,7 +159,7 @@
                             <div class="form-group mb-5">
                                 <label class="form-label-clean">Group Name</label>
                                 <div class="input-with-icon">
-                                    <Type class="input-icon" size="18" />
+                                    <Type class="input-icon" :size="18" />
                                     <input v-model="form.name" class="form-input-clean" required
                                         placeholder="e.g. Thailand Trip 2026" autofocus />
                                 </div>
@@ -177,7 +177,7 @@
                                 <div class="form-group">
                                     <label class="form-label-clean">Total Budget</label>
                                     <div class="input-with-icon">
-                                        <Wallet class="input-icon" size="18" />
+                                        <Wallet class="input-icon" :size="18" />
                                         <input type="number" v-model="form.budget" class="form-input-clean"
                                             placeholder="0.00" />
                                     </div>
@@ -197,13 +197,13 @@
                             <label class="form-label-clean">Duration (Optional)</label>
                             <div class="date-range-box mb-6">
                                 <div class="date-field">
-                                    <Calendar class="date-icon" size="16" />
+                                    <Calendar class="date-icon" :size="16" />
                                     <input type="date" v-model="form.start_date" class="date-input-clean"
                                         placeholder="Start" />
                                 </div>
                                 <span class="date-arrow">→</span>
                                 <div class="date-field">
-                                    <Calendar class="date-icon" size="16" />
+                                    <Calendar class="date-icon" :size="16" />
                                     <input type="date" v-model="form.end_date" class="date-input-clean"
                                         placeholder="End" />
                                 </div>
@@ -225,7 +225,7 @@
                     <div class="modal-global glass premium-modal animate-in compact-modal"
                         style="max-width: 400px; text-align: center; padding: 2rem;">
                         <div class="delete-icon-wrapper mb-4">
-                            <Trash2 size="32" class="text-red-500" />
+                            <Trash2 :size="32" class="text-red-500" />
                         </div>
                         <h2 class="text-xl font-bold text-slate-800 mb-2">Delete Group?</h2>
                         <p class="text-slate-500 mb-6 text-sm leading-relaxed">
@@ -246,7 +246,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, Search, Activity, Calendar, Wallet, Type, X } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Search, Calendar, Wallet, Type, X } from 'lucide-vue-next'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
